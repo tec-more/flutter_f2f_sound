@@ -98,7 +98,7 @@ public class FlutterF2fSoundPlugin: NSObject, FlutterPlugin {
     private let audioManager = AudioManager()
     
     public static func register(with registrar: FlutterPluginRegistrar) {
-        let channel = FlutterMethodChannel(name: "flutter_f2f_sound", binaryMessenger: registrar.messenger())
+        let channel = FlutterMethodChannel(name: "com.tecmore.flutter_f2f_sound", binaryMessenger: registrar.messenger())
         let instance = FlutterF2fSoundPlugin()
         registrar.addMethodCallDelegate(instance, channel: channel)
     }

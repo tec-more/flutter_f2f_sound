@@ -7,13 +7,41 @@ import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 class MockFlutterF2fSoundPlatform
     with MockPlatformInterfaceMixin
     implements FlutterF2fSoundPlatform {
-
   @override
   Future<String?> getPlatformVersion() => Future.value('42');
+
+  @override
+  Future<void> play({
+    required String path,
+    double volume = 1.0,
+    bool loop = false,
+  }) => Future.value();
+
+  @override
+  Future<void> pause() => Future.value();
+
+  @override
+  Future<void> stop() => Future.value();
+
+  @override
+  Future<void> resume() => Future.value();
+
+  @override
+  Future<void> setVolume(double volume) => Future.value();
+
+  @override
+  Future<bool> isPlaying() => Future.value(false);
+
+  @override
+  Future<double> getCurrentPosition() => Future.value(0.0);
+
+  @override
+  Future<double> getDuration(String path) => Future.value(0.0);
 }
 
 void main() {
-  final FlutterF2fSoundPlatform initialPlatform = FlutterF2fSoundPlatform.instance;
+  final FlutterF2fSoundPlatform initialPlatform =
+      FlutterF2fSoundPlatform.instance;
 
   test('$MethodChannelFlutterF2fSound is the default instance', () {
     expect(initialPlatform, isInstanceOf<MethodChannelFlutterF2fSound>());

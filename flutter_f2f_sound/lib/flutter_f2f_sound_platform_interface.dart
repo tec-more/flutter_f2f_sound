@@ -26,4 +26,48 @@ abstract class FlutterF2fSoundPlatform extends PlatformInterface {
   Future<String?> getPlatformVersion() {
     throw UnimplementedError('platformVersion() has not been implemented.');
   }
+
+  /// Play audio from the given path
+  Future<void> play({
+    required String path,
+    double volume = 1.0,
+    bool loop = false,
+  }) {
+    throw UnimplementedError('play() has not been implemented.');
+  }
+
+  /// Pause the currently playing audio
+  Future<void> pause() {
+    throw UnimplementedError('pause() has not been implemented.');
+  }
+
+  /// Stop the currently playing audio
+  Future<void> stop() {
+    throw UnimplementedError('stop() has not been implemented.');
+  }
+
+  /// Resume playback of paused audio
+  Future<void> resume() {
+    throw UnimplementedError('resume() has not been implemented.');
+  }
+
+  /// Set the volume of the currently playing audio (0.0 to 1.0)
+  Future<void> setVolume(double volume) {
+    throw UnimplementedError('setVolume() has not been implemented.');
+  }
+
+  /// Check if audio is currently playing
+  Future<bool> isPlaying() {
+    throw UnimplementedError('isPlaying() has not been implemented.');
+  }
+
+  /// Get the current playback position in seconds
+  Future<double> getCurrentPosition() {
+    throw UnimplementedError('getCurrentPosition() has not been implemented.');
+  }
+
+  /// Get the duration of the audio file in seconds
+  Future<double> getDuration(String path) {
+    throw UnimplementedError('getDuration() has not been implemented.');
+  }
 }

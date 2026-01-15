@@ -3,15 +3,21 @@ import 'package:flutter/services.dart';
 
 import 'flutter_f2f_sound_platform_interface.dart';
 
-/// An implementation of [FlutterF2fSoundPlatform] that uses method channels.
+/// An implementation of [FlutterF2fSoundPlatform] that uses method channels and event channels.
 class MethodChannelFlutterF2fSound extends FlutterF2fSoundPlatform {
-  /// The method channel used to interact with the native platform.
+  /// The method channel used to interact with the native platform for method calls.
   @visibleForTesting
-  final methodChannel = const MethodChannel('flutter_f2f_sound');
+  final methodChannel = const MethodChannel('com.tecmore.flutter_f2f_sound');
+  
+  /// The event channel used to receive real-time audio data streams.
+  @visibleForTesting
+  final eventChannel = const EventChannel('com.tecmore.flutter_f2f_sound/recording_stream');
 
   @override
   Future<String?> getPlatformVersion() async {
-    final version = await methodChannel.invokeMethod<String>('getPlatformVersion');
+    final version = await methodChannel.invokeMethod<String>(
+      'getPlatformVersion',
+    );
     return version;
   }
 
@@ -61,5 +67,20 @@ class MethodChannelFlutterF2fSound extends FlutterF2fSoundPlatform {
   @override
   Future<double> getDuration(String path) async {
     return await methodChannel.invokeMethod<double>('getDuration', {'path': path}) ?? 0.0;
+  }
+  @override
+  Stream<List<int>> startRecording() async* {
+    await methodChannel.invokeMethod('startRecording');
+    yield* eventChannel.receiveBroadcastStream().cast<List<int>>();
+  }
+  @override
+  Future<void> stopRecording() async {
+    await methodChannel.invokeMethod('stopRecording');
+  }
+
+  @override
+  Stream<List<int>> startPlaybackStream(String path) async* {
+    await methodChannel.invokeMethod('startPlaybackStream', {'path': path});
+    yield* eventChannel.receiveBroadcastStream().cast<List<int>>();
   }
 }

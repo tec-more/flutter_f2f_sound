@@ -70,4 +70,24 @@ class FlutterF2fSound {
   Future<double> getDuration(String path) {
     return FlutterF2fSoundPlatform.instance.getDuration(path);
   }
+
+  /// Start audio recording and get a stream of recorded audio data
+  /// 
+  /// Returns a stream of audio data as List<int> (PCM samples)
+  Stream<List<int>> startRecording() {
+    return FlutterF2fSoundPlatform.instance.startRecording();
+  }
+
+  /// Stop audio recording
+  Future<void> stopRecording() {
+    return FlutterF2fSoundPlatform.instance.stopRecording();
+  }
+
+  /// Start audio playback and get a stream of playback audio data
+  /// 
+  /// [path] - The path to the audio file
+  /// Returns a stream of audio data as List<int> (PCM samples)
+  Stream<List<int>> startPlaybackStream(String path) {
+    return FlutterF2fSoundPlatform.instance.startPlaybackStream(path);
+  }
 }

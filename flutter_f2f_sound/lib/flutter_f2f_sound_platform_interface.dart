@@ -70,4 +70,11 @@ abstract class FlutterF2fSoundPlatform extends PlatformInterface {
   Future<double> getDuration(String path) {
     throw UnimplementedError('getDuration() has not been implemented.');
   }
+
+  // 音频录制流
+  Stream<List<int>> startRecording();
+  Future<void> stopRecording();
+
+  // 音频播放流
+  Stream<List<int>> startPlaybackStream(String path);
 }

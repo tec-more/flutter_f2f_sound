@@ -37,6 +37,19 @@ class MockFlutterF2fSoundPlatform
 
   @override
   Future<double> getDuration(String path) => Future.value(0.0);
+
+  @override
+  Stream<List<int>> startRecording() async* {
+    yield* Stream.empty();
+  }
+
+  @override
+  Future<void> stopRecording() => Future.value();
+
+  @override
+  Stream<List<int>> startPlaybackStream(String path) async* {
+    yield* Stream.empty();
+  }
 }
 
 void main() {

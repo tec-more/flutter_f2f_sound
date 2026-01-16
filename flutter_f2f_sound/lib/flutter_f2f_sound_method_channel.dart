@@ -8,10 +8,12 @@ class MethodChannelFlutterF2fSound extends FlutterF2fSoundPlatform {
   /// The method channel used to interact with the native platform for method calls.
   @visibleForTesting
   final methodChannel = const MethodChannel('com.tecmore.flutter_f2f_sound');
-  
+
   /// The event channel used to receive real-time audio data streams.
   @visibleForTesting
-  final eventChannel = const EventChannel('com.tecmore.flutter_f2f_sound/recording_stream');
+  final eventChannel = const EventChannel(
+    'com.tecmore.flutter_f2f_sound/recording_stream',
+  );
 
   @override
   Future<String?> getPlatformVersion() async {
@@ -61,18 +63,27 @@ class MethodChannelFlutterF2fSound extends FlutterF2fSoundPlatform {
 
   @override
   Future<double> getCurrentPosition() async {
-    return await methodChannel.invokeMethod<double>('getCurrentPosition') ?? 0.0;
+    return await methodChannel.invokeMethod<double>('getCurrentPosition') ??
+        0.0;
   }
 
   @override
   Future<double> getDuration(String path) async {
-    return await methodChannel.invokeMethod<double>('getDuration', {'path': path}) ?? 0.0;
+    return await methodChannel.invokeMethod<double>('getDuration', {
+          'path': path,
+        }) ??
+        0.0;
   }
+
   @override
   Stream<List<int>> startRecording() async* {
     await methodChannel.invokeMethod('startRecording');
-    yield* eventChannel.receiveBroadcastStream().cast<List<int>>();
+    yield* eventChannel.receiveBroadcastStream().map((event) {
+      final list = event as List<dynamic>;
+      return list.map((e) => e as int).toList();
+    });
   }
+
   @override
   Future<void> stopRecording() async {
     await methodChannel.invokeMethod('stopRecording');
@@ -81,6 +92,9 @@ class MethodChannelFlutterF2fSound extends FlutterF2fSoundPlatform {
   @override
   Stream<List<int>> startPlaybackStream(String path) async* {
     await methodChannel.invokeMethod('startPlaybackStream', {'path': path});
-    yield* eventChannel.receiveBroadcastStream().cast<List<int>>();
+    yield* eventChannel.receiveBroadcastStream().map((event) {
+      final list = event as List<dynamic>;
+      return list.map((e) => e as int).toList();
+    });
   }
 }

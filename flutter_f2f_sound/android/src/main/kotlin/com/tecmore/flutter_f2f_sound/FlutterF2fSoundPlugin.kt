@@ -2,11 +2,14 @@ package com.tecmore.flutter_f2f_sound
 
 import android.content.Context
 import android.media.AudioFormat
-import android.media.AudioManager
+import android.media.AudioManager as AndroidAudioManager
 import android.media.AudioRecord
 import android.media.AudioTrack
 import android.media.MediaPlayer
+import android.media.MediaRecorder
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.EventChannel.EventSink
@@ -27,7 +30,7 @@ class FlutterF2fSoundPlugin :
     // This local reference serves to register the plugin with the Flutter Engine and unregister it
     // when the Flutter Engine is detached from the Activity
     private lateinit var channel: MethodChannel
-    private lateinit var audioManager: AudioManager
+    private lateinit var audioManager: F2fAudioManager
     private lateinit var eventChannel: EventChannel
     
     // Audio recording variables
@@ -35,11 +38,14 @@ class FlutterF2fSoundPlugin :
     private var isRecording = false
     private var recordingThread: Thread? = null
     private var eventSink: EventSink? = null
+    
+    // Main thread handler for communication with Flutter
+    private val mainThreadHandler = Handler(Looper.getMainLooper())
 
     override fun onAttachedToEngine(flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
         channel = MethodChannel(flutterPluginBinding.binaryMessenger, "com.tecmore.flutter_f2f_sound")
         channel.setMethodCallHandler(this)
-        audioManager = AudioManager(flutterPluginBinding.applicationContext)
+        audioManager = F2fAudioManager(flutterPluginBinding.applicationContext)
         
         // Initialize event channel for audio streams
         eventChannel = EventChannel(flutterPluginBinding.binaryMessenger, "com.tecmore.flutter_f2f_sound/recording_stream")
@@ -136,7 +142,7 @@ class FlutterF2fSoundPlugin :
 
         try {
             audioRecord = AudioRecord(
-                AudioManager.STREAM_MUSIC, 
+                MediaRecorder.AudioSource.MIC, 
                 sampleRate, 
                 channelConfig, 
                 audioFormat, 
@@ -158,8 +164,14 @@ class FlutterF2fSoundPlugin :
                     val bytesRead = audioRecord?.read(buffer, 0, buffer.size) ?: 0
                     if (bytesRead > 0 && eventSink != null) {
                         // Convert to List<Int> for Flutter
-                        val intList = buffer.take(bytesRead).toList()
-                        eventSink?.success(intList)
+                        val intList = ArrayList<Int>(bytesRead)
+                        for (i in 0 until bytesRead) {
+                            intList.add(buffer[i].toInt())
+                        }
+                        // Send audio data to Flutter on main thread
+                        mainThreadHandler.post {
+                            eventSink?.success(intList)
+                        }
                     }
                 }
             }
@@ -188,7 +200,7 @@ class FlutterF2fSoundPlugin :
             val bufferSize = AudioTrack.getMinBufferSize(sampleRate, channelConfig, audioFormat)
 
             val audioTrack = AudioTrack(
-                AudioManager.STREAM_MUSIC,
+                AndroidAudioManager.STREAM_MUSIC,
                 sampleRate,
                 channelConfig,
                 audioFormat,
@@ -214,9 +226,14 @@ class FlutterF2fSoundPlugin :
                 var bytesRead: Int
                 while (fileInputStream.read(buffer).also { bytesRead = it } != -1 && eventSink != null) {
                     audioTrack.write(buffer, 0, bytesRead)
-                    // Send audio data to Flutter
-                    val intList = buffer.take(bytesRead).toList()
-                    eventSink?.success(intList)
+                    // Send audio data to Flutter on main thread
+                    val intList = ArrayList<Int>(bytesRead)
+                    for (i in 0 until bytesRead) {
+                        intList.add(buffer[i].toInt())
+                    }
+                    mainThreadHandler.post {
+                        eventSink?.success(intList)
+                    }
                 }
 
                 audioTrack.stop()
@@ -238,8 +255,8 @@ class FlutterF2fSoundPlugin :
     }
 }
 
-/** AudioManager handles all audio playback operations */
-class AudioManager(private val context: Context) {
+/** F2fAudioManager handles all audio playback operations */
+class F2fAudioManager(private val context: Context) {
     private var mediaPlayer: MediaPlayer? = null
 
     /** Play audio from the given path */
@@ -255,7 +272,7 @@ class AudioManager(private val context: Context) {
             
             mediaPlayer = MediaPlayer().apply {
                 setDataSource(context, uri)
-                this.volume = volume.toFloat()
+                setVolume(volume.toFloat(), volume.toFloat())
                 isLooping = loop
                 prepare()
                 start()
@@ -286,7 +303,7 @@ class AudioManager(private val context: Context) {
 
     /** Set the volume of the currently playing audio (0.0 to 1.0) */
     fun setVolume(volume: Double) {
-        mediaPlayer?.volume = volume.toFloat()
+        mediaPlayer?.setVolume(volume.toFloat(), volume.toFloat())
     }
 
     /** Check if audio is currently playing */
@@ -308,12 +325,14 @@ class AudioManager(private val context: Context) {
                 Uri.parse("file://$path")
             }
             
-            MediaPlayer().use {tempPlayer ->
-                tempPlayer.setDataSource(context, uri)
-                tempPlayer.prepare()
-                tempPlayer.duration.toDouble() / 1000
-            }
+            val tempPlayer = MediaPlayer()
+            tempPlayer.setDataSource(context, uri)
+            tempPlayer.prepare()
+            val duration = tempPlayer.duration.toDouble() / 1000
+            tempPlayer.release()
+            duration
         } catch (e: Exception) {
+            e.printStackTrace()
             0.0
         }
     }

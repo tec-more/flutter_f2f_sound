@@ -1,8 +1,7 @@
-
 import 'flutter_f2f_sound_platform_interface.dart';
 
 /// Flutter F2F Sound Plugin
-/// 
+///
 /// A cross-platform audio plugin that supports playback control across multiple platforms.
 class FlutterF2fSound {
   /// Get the platform version
@@ -11,7 +10,7 @@ class FlutterF2fSound {
   }
 
   /// Play audio from the given path
-  /// 
+  ///
   /// [path] - The path to the audio file
   /// [volume] - The volume level (0.0 to 1.0)
   /// [loop] - Whether to loop the audio playback
@@ -43,28 +42,28 @@ class FlutterF2fSound {
   }
 
   /// Set the volume of the currently playing audio
-  /// 
+  ///
   /// [volume] - The volume level (0.0 to 1.0)
   Future<void> setVolume(double volume) {
     return FlutterF2fSoundPlatform.instance.setVolume(volume);
   }
 
   /// Check if audio is currently playing
-  /// 
+  ///
   /// Returns true if audio is playing, false otherwise
   Future<bool> isPlaying() {
     return FlutterF2fSoundPlatform.instance.isPlaying();
   }
 
   /// Get the current playback position in seconds
-  /// 
+  ///
   /// Returns the current position in seconds
   Future<double> getCurrentPosition() {
     return FlutterF2fSoundPlatform.instance.getCurrentPosition();
   }
 
   /// Get the duration of the audio file in seconds
-  /// 
+  ///
   /// [path] - The path to the audio file
   /// Returns the duration in seconds
   Future<double> getDuration(String path) {
@@ -72,7 +71,7 @@ class FlutterF2fSound {
   }
 
   /// Start audio recording and get a stream of recorded audio data
-  /// 
+  ///
   /// Returns a stream of audio data as List<int> (PCM samples)
   Stream<List<int>> startRecording() {
     return FlutterF2fSoundPlatform.instance.startRecording();
@@ -84,10 +83,17 @@ class FlutterF2fSound {
   }
 
   /// Start audio playback and get a stream of playback audio data
-  /// 
+  ///
   /// [path] - The path to the audio file
   /// Returns a stream of audio data as List<int> (PCM samples)
   Stream<List<int>> startPlaybackStream(String path) {
     return FlutterF2fSoundPlatform.instance.startPlaybackStream(path);
+  }
+
+  /// Start system sound capture and get a stream of captured audio data
+  ///
+  /// Returns a stream of audio data as List<int> (PCM samples)
+  Stream<List<int>> startSystemSoundCapture() {
+    return FlutterF2fSoundPlatform.instance.startSystemSoundCapture();
   }
 }

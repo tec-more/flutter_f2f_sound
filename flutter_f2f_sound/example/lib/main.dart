@@ -35,20 +35,32 @@ class _MyAppState extends State<MyApp> {
   StreamSubscription<List<int>>? _recordingStreamSubscription;
   int _audioDataLength = 0;
 
+  // System sound capture variables
+  bool _isCapturingSystemSound = false;
+  double _systemSoundCaptureDuration = 0.0;
+  Timer? _systemSoundCaptureTimer;
+  StreamSubscription<List<int>>? _systemSoundCaptureStreamSubscription;
+  int _systemSoundDataLength = 0;
+
   @override
   void initState() {
     super.initState();
     initPlatformState();
-    // Set a default audio path for testing (replace with your own audio file path)
+    // Set a default audio path for testing
+    // Supports both local files (e.g., C:\\path\\to\\audio.wav)
+    // and network URLs (e.g., https://example.com/audio.wav)
+    // _audioPath = 'C:\\Windows\\Media\\Alarm01.wav';
     _audioPath =
-        'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3';
+        'https://cdn.freesound.org/previews/73/73197_806506-lq.mp3'; // Default Windows alarm sound
   }
 
   @override
   void dispose() {
     _positionTimer?.cancel();
     _recordingTimer?.cancel();
+    _systemSoundCaptureTimer?.cancel();
     _recordingStreamSubscription?.cancel();
+    _systemSoundCaptureStreamSubscription?.cancel();
     super.dispose();
   }
 
@@ -83,6 +95,7 @@ class _MyAppState extends State<MyApp> {
     ) async {
       if (_isPlaying) {
         final position = await _flutterF2fSoundPlugin.getCurrentPosition();
+        print('Timer update: position=$position, duration=$_duration');
         setState(() {
           _currentPosition = position;
         });
@@ -94,8 +107,9 @@ class _MyAppState extends State<MyApp> {
 
   // Format time in seconds to MM:SS format
   String _formatTime(double seconds) {
-    final minutes = (seconds ~/ 60).toString().padLeft(2, '0');
-    final secs = (seconds % 60).toString().padLeft(2, '0');
+    final secondsInt = seconds.toInt(); // Convert to integer seconds
+    final minutes = (secondsInt ~/ 60).toString().padLeft(2, '0');
+    final secs = (secondsInt % 60).toString().padLeft(2, '0');
     return '$minutes:$secs';
   }
 
@@ -116,7 +130,8 @@ class _MyAppState extends State<MyApp> {
               TextField(
                 decoration: const InputDecoration(
                   labelText: 'Audio Path',
-                  hintText: 'Enter audio file path or URL',
+                  hintText:
+                      'Enter audio file path or URL (e.g., https://example.com/audio.wav)',
                   border: OutlineInputBorder(),
                 ),
                 controller: TextEditingController(text: _audioPath),
@@ -135,23 +150,36 @@ class _MyAppState extends State<MyApp> {
                       onPressed: () async {
                         if (_audioPath.isEmpty) return;
 
-                        await _flutterF2fSoundPlugin.play(
-                          path: _audioPath,
-                          volume: _volume,
-                          loop: false,
-                        );
+                        try {
+                          await _flutterF2fSoundPlugin.play(
+                            path: _audioPath,
+                            volume: _volume,
+                            loop: false,
+                          );
 
-                        // Get duration
-                        final duration = await _flutterF2fSoundPlugin
-                            .getDuration(_audioPath);
+                          if (!mounted) return;
 
-                        setState(() {
-                          _isPlaying = true;
-                          _duration = duration;
-                          _currentPosition = 0.0;
-                        });
+                          setState(() {
+                            _isPlaying = true;
+                            _currentPosition = 0.0;
+                          });
 
-                        _startPositionTimer();
+                          _startPositionTimer();
+
+                          // Get duration after a short delay to ensure playback thread has initialized
+                          await Future.delayed(const Duration(milliseconds: 100));
+                          final duration = await _flutterF2fSoundPlugin.getDuration(_audioPath);
+
+                          if (!mounted) return;
+
+                          setState(() {
+                            _duration = duration;
+                          });
+
+                          print('Duration updated: $_duration');
+                        } catch (e) {
+                          debugPrint('Playback error: $e');
+                        }
                       },
                       icon: const Icon(Icons.play_arrow),
                       label: const Text('Play'),
@@ -244,12 +272,20 @@ class _MyAppState extends State<MyApp> {
                       Text(_formatTime(_duration)),
                     ],
                   ),
+                  // Debug info
+                  Text(
+                    'Debug: pos=$_currentPosition, dur=$_duration, slider_val=${_duration > 0 ? _currentPosition.clamp(0.0, _duration) : 0.0}',
+                    style: TextStyle(fontSize: 10, color: Colors.grey),
+                  ),
                   Slider(
-                    value: _currentPosition,
+                    value: _duration > 0
+                        ? _currentPosition.clamp(0.0, _duration)
+                        : 0.0,
                     min: 0.0,
                     max: _duration > 0 ? _duration : 1.0,
                     onChanged: (value) {
                       // Note: Position seeking is not implemented in this example
+                      print('Slider changed: value=$value');
                     },
                     activeColor: _isPlaying ? Colors.blue : Colors.grey,
                     inactiveColor: Colors.grey[300],
@@ -410,6 +446,120 @@ class _MyAppState extends State<MyApp> {
                       ),
                       Text(
                         'Audio Data Captured: ${(_audioDataLength / 1024).toStringAsFixed(2)} KB',
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 24),
+
+              // System sound capture section
+              const Text(
+                'System Sound Capture:',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 16),
+
+              // System sound capture buttons
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  ElevatedButton.icon(
+                    onPressed: () async {
+                      if (_isCapturingSystemSound) return;
+
+                      setState(() {
+                        _isCapturingSystemSound = true;
+                        _systemSoundCaptureDuration = 0.0;
+                        _systemSoundDataLength = 0;
+                      });
+
+                      // Start system sound capture timer
+                      _systemSoundCaptureTimer?.cancel();
+                      _systemSoundCaptureTimer = Timer.periodic(
+                        const Duration(milliseconds: 500),
+                        (timer) {
+                          if (_isCapturingSystemSound) {
+                            setState(() {
+                              _systemSoundCaptureDuration += 0.5;
+                            });
+                          } else {
+                            timer.cancel();
+                          }
+                        },
+                      );
+
+                      try {
+                        // Get system sound capture stream
+                        final systemSoundStream = _flutterF2fSoundPlugin
+                            .startSystemSoundCapture();
+
+                        // Listen to system sound capture stream
+                        _systemSoundCaptureStreamSubscription =
+                            systemSoundStream.listen(
+                              (audioData) {
+                                setState(() {
+                                  _systemSoundDataLength += audioData.length;
+                                });
+                              },
+                              onError: (error) {
+                                print('System sound capture error: $error');
+                                setState(() {
+                                  _isCapturingSystemSound = false;
+                                });
+                              },
+                            );
+                      } catch (e) {
+                        print('Failed to start system sound capture: $e');
+                        setState(() {
+                          _isCapturingSystemSound = false;
+                        });
+                      }
+                    },
+                    icon: const Icon(Icons.speaker_group),
+                    label: const Text('Capture System Sound'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blue,
+                    ),
+                  ),
+                  ElevatedButton.icon(
+                    onPressed: () async {
+                      if (!_isCapturingSystemSound) return;
+
+                      setState(() {
+                        _isCapturingSystemSound = false;
+                      });
+
+                      // Stop system sound capture
+                      await _flutterF2fSoundPlugin.stopRecording();
+                      _systemSoundCaptureStreamSubscription?.cancel();
+                      _systemSoundCaptureTimer?.cancel();
+                    },
+                    icon: const Icon(Icons.stop),
+                    label: const Text('Stop'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blue,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+
+              // System sound capture status
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(12.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'System Sound Capture Status: ${_isCapturingSystemSound ? 'Capturing' : 'Stopped'}',
+                      ),
+                      Text(
+                        'Capture Duration: ${_formatTime(_systemSoundCaptureDuration)}',
+                      ),
+                      Text(
+                        'System Sound Data Captured: ${(_systemSoundDataLength / 1024).toStringAsFixed(2)} KB',
                       ),
                     ],
                   ),

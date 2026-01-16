@@ -15,6 +15,12 @@ class MethodChannelFlutterF2fSound extends FlutterF2fSoundPlatform {
     'com.tecmore.flutter_f2f_sound/recording_stream',
   );
 
+  /// The event channel used to receive system sound capture stream.
+  @visibleForTesting
+  final systemSoundEventChannel = const EventChannel(
+    'com.tecmore.flutter_f2f_sound/system_sound_stream',
+  );
+
   @override
   Future<String?> getPlatformVersion() async {
     final version = await methodChannel.invokeMethod<String>(
@@ -87,6 +93,15 @@ class MethodChannelFlutterF2fSound extends FlutterF2fSoundPlatform {
   @override
   Future<void> stopRecording() async {
     await methodChannel.invokeMethod('stopRecording');
+  }
+
+  @override
+  Stream<List<int>> startSystemSoundCapture() async* {
+    await methodChannel.invokeMethod('startSystemSoundCapture');
+    yield* systemSoundEventChannel.receiveBroadcastStream().map((event) {
+      final list = event as List<dynamic>;
+      return list.map((e) => e as int).toList();
+    });
   }
 
   @override

@@ -1,5 +1,8 @@
 # Project-level configuration.
 cmake_minimum_required(VERSION 3.13)
+if(POLICY CMP0135)
+  cmake_policy(SET CMP0135 NEW)
+endif()
 project(runner LANGUAGES CXX)
 
 # The name of the executable created for the application. Change this to change

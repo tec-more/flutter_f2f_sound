@@ -75,6 +75,9 @@ abstract class FlutterF2fSoundPlatform extends PlatformInterface {
   Stream<List<int>> startRecording();
   Future<void> stopRecording();
 
+  // 系统声音捕获流
+  Stream<List<int>> startSystemSoundCapture();
+
   // 音频播放流
   Stream<List<int>> startPlaybackStream(String path);
 }

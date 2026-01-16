@@ -31,10 +31,18 @@ class FlutterF2fSoundWeb extends FlutterF2fSoundPlatform {
   }
 
   /// Start audio recording and get a stream of recorded audio data
-  /// 
+  ///
   /// Returns a stream of audio data as List<int> (PCM samples)
   @override
   Stream<List<int>> startRecording() async* {
+    yield* Stream.empty();
+  }
+
+  /// Start system sound capture and get a stream of captured audio data
+  ///
+  /// Returns a stream of audio data as List<int> (PCM samples)
+  @override
+  Stream<List<int>> startSystemSoundCapture() async* {
     yield* Stream.empty();
   }
 
@@ -97,5 +105,4 @@ class FlutterF2fSoundWeb extends FlutterF2fSoundPlatform {
     // Web implementation for getCurrentPosition
     return 0.0;
   }
-
 }

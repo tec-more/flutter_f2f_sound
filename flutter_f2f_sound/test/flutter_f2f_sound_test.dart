@@ -50,6 +50,11 @@ class MockFlutterF2fSoundPlatform
   Stream<List<int>> startPlaybackStream(String path) async* {
     yield* Stream.empty();
   }
+
+  @override
+  Stream<List<int>> startSystemSoundCapture() async* {
+    yield* Stream.empty();
+  }
 }
 
 void main() {

@@ -37,12 +37,12 @@ class FlutterF2fSoundPlugin :
     private var eventSink: EventSink? = null
 
     override fun onAttachedToEngine(flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
-        channel = MethodChannel(flutterPluginBinding.binaryMessenger, "flutter_f2f_sound")
+        channel = MethodChannel(flutterPluginBinding.binaryMessenger, "com.tecmore.flutter_f2f_sound")
         channel.setMethodCallHandler(this)
         audioManager = AudioManager(flutterPluginBinding.applicationContext)
         
         // Initialize event channel for audio streams
-        eventChannel = EventChannel(flutterPluginBinding.binaryMessenger, "flutter_f2f_sound/recording_stream")
+        eventChannel = EventChannel(flutterPluginBinding.binaryMessenger, "com.tecmore.flutter_f2f_sound/recording_stream")
         eventChannel.setStreamHandler(this)
     }
 

@@ -260,22 +260,30 @@ class F2fAudioManager(private val context: Context) {
     private var mediaPlayer: MediaPlayer? = null
 
     /** Play audio from the given path */
-    fun play(path: String, volume: Double, loop: Boolean) {
+    fun play(path: String, volume: Double, loop: Boolean, onPrepared: (() -> Unit)? = null) {
         stop() // Stop any currently playing audio
-        
+
         try {
-            val uri = if (path.startsWith("http")) {
-                Uri.parse(path)
-            } else {
-                Uri.parse("file://$path")
-            }
-            
             mediaPlayer = MediaPlayer().apply {
-                setDataSource(context, uri)
+                if (path.startsWith("http")) {
+                    // For network URLs, use setDataSource(String) directly
+                    setDataSource(path)
+                } else {
+                    // For local files, use Uri with context
+                    val uri = Uri.parse("file://$path")
+                    setDataSource(context, uri)
+                }
                 setVolume(volume.toFloat(), volume.toFloat())
                 isLooping = loop
-                prepare()
-                start()
+
+                // Use prepareAsync() for network streams to avoid blocking UI
+                // Use setOnPreparedListener to start playback when ready
+                setOnPreparedListener { mp ->
+                    mp.start()
+                    onPrepared?.invoke()
+                }
+
+                prepareAsync()
             }
         } catch (e: Exception) {
             e.printStackTrace()
@@ -316,20 +324,35 @@ class F2fAudioManager(private val context: Context) {
         return mediaPlayer?.currentPosition?.toDouble()?.div(1000) ?: 0.0
     }
 
+    /** Get the duration of the currently playing audio */
+    fun getPlayingDuration(): Double {
+        return mediaPlayer?.duration?.toDouble()?.div(1000) ?: 0.0
+    }
+
     /** Get the duration of the audio file in seconds */
     fun getDuration(path: String): Double {
         return try {
-            val uri = if (path.startsWith("http")) {
-                Uri.parse(path)
-            } else {
-                Uri.parse("file://$path")
-            }
-            
             val tempPlayer = MediaPlayer()
-            tempPlayer.setDataSource(context, uri)
-            tempPlayer.prepare()
-            val duration = tempPlayer.duration.toDouble() / 1000
-            tempPlayer.release()
+            if (path.startsWith("http")) {
+                // For network URLs, use setDataSource(String) directly
+                tempPlayer.setDataSource(path)
+            } else {
+                // For local files, use Uri with context
+                val uri = Uri.parse("file://$path")
+                tempPlayer.setDataSource(context, uri)
+            }
+
+            // For network files, duration may not be immediately available
+            // Return 0.0 for network URLs to avoid blocking
+            val duration = if (path.startsWith("http")) {
+                tempPlayer.release()
+                0.0  // Duration will be updated when MediaPlayer is prepared
+            } else {
+                tempPlayer.prepare()
+                val dur = tempPlayer.duration.toDouble() / 1000
+                tempPlayer.release()
+                dur
+            }
             duration
         } catch (e: Exception) {
             e.printStackTrace()

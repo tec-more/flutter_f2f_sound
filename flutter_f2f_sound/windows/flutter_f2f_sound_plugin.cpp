@@ -264,48 +264,20 @@ void FlutterF2fSoundPlugin::HandleMethodCall(
                 path.c_str(), volume, loop);
       OutputDebugStringA(debug_msg);
 
-      std::string playback_path = path;
+      current_playback_path_ = path;
 
-      // Check if this is a URL and download if necessary
-      if (IsURL(path)) {
-        sprintf_s(debug_msg, sizeof(debug_msg), "Detected URL, downloading audio file...\n");
-        OutputDebugStringA(debug_msg);
-
-        std::string local_path;
-        HRESULT hr = DownloadAudioFile(path, local_path);
-        if (FAILED(hr)) {
-          sprintf_s(debug_msg, sizeof(debug_msg), "Failed to download audio file: 0x%08X\n", hr);
-          OutputDebugStringA(debug_msg);
-          result->Error("DOWNLOAD_FAILED", "Failed to download audio file from URL");
-          return;
-        }
-
-        sprintf_s(debug_msg, sizeof(debug_msg), "Downloaded to: %s\n", local_path.c_str());
-        OutputDebugStringA(debug_msg);
-
-        playback_path = local_path;
-      }
-
-      current_playback_path_ = playback_path;
-
-      // Initialize playback
+      // Initialize playback first (this is fast)
       HRESULT hr = InitializePlaybackWASAPI();
       if (SUCCEEDED(hr)) {
         sprintf_s(debug_msg, sizeof(debug_msg), "WASAPI initialized successfully, starting playback thread\n");
         OutputDebugStringA(debug_msg);
 
+        // Start playback thread (downloads and plays in background)
         StartPlaybackThread();
 
-        // Check if playback actually started
-        Sleep(100);  // Give it a moment to start
-        sprintf_s(debug_msg, sizeof(debug_msg), "Playback started: %d\n", is_playing_.load());
-        OutputDebugStringA(debug_msg);
-
-        if (!is_playing_) {
-          result->Error("PLAY_START_FAILED", "Playback thread failed to start");
-        } else {
-          result->Success(flutter::EncodableValue(nullptr));
-        }
+        // Return immediately - don't wait for playback to actually start
+        // This prevents UI blocking for network URLs
+        result->Success(flutter::EncodableValue(nullptr));
       } else {
         sprintf_s(debug_msg, sizeof(debug_msg), "WASAPI initialization failed: 0x%08X\n", hr);
         OutputDebugStringA(debug_msg);
@@ -343,11 +315,11 @@ void FlutterF2fSoundPlugin::HandleMethodCall(
   } else if (method_call.method_name().compare("getCurrentPosition") == 0) {
     double position = current_position_.load();
 
-    char debug_msg[256];
-    sprintf_s(debug_msg, sizeof(debug_msg),
-      "getCurrentPosition called: current_position=%.2f, returning=%.2f\n",
-      position, position);
-    OutputDebugStringA(debug_msg);
+    // char debug_msg[256];
+    // sprintf_s(debug_msg, sizeof(debug_msg),
+    //   "getCurrentPosition called: current_position=%.2f, returning=%.2f\n",
+    //   position, position);
+    // OutputDebugStringA(debug_msg);
 
     // Explicitly return as double to avoid type confusion
     result->Success(flutter::EncodableValue(static_cast<double>(position)));
@@ -971,15 +943,37 @@ void FlutterF2fSoundPlugin::StartPlaybackThread() {
   OutputDebugStringA("Starting playback thread, position reset to 0.0\n");
 
   playback_thread_ = std::thread([this]() {
+    std::string playback_path = current_playback_path_;
+
+    // Check if this is a URL and download if necessary (now in background thread)
+    char debug_msg[512];
+    if (IsURL(playback_path)) {
+      sprintf_s(debug_msg, sizeof(debug_msg), "Detected URL, downloading audio file in background...\n");
+      OutputDebugStringA(debug_msg);
+
+      std::string local_path;
+      HRESULT hr = DownloadAudioFile(playback_path, local_path);
+      if (FAILED(hr)) {
+        sprintf_s(debug_msg, sizeof(debug_msg), "Failed to download audio file: 0x%08X\n", hr);
+        OutputDebugStringA(debug_msg);
+        is_playing_ = false;
+        return;
+      }
+
+      sprintf_s(debug_msg, sizeof(debug_msg), "Downloaded to: %s\n", local_path.c_str());
+      OutputDebugStringA(debug_msg);
+
+      playback_path = local_path;
+    }
+
     // Read audio file first
     std::vector<uint8_t> audio_data;
     WAVEFORMATEX* file_format = nullptr;
 
-    char debug_msg[512];
-    sprintf_s(debug_msg, sizeof(debug_msg), "Attempting to read audio file: %s\n", current_playback_path_.c_str());
+    sprintf_s(debug_msg, sizeof(debug_msg), "Attempting to read audio file: %s\n", playback_path.c_str());
     OutputDebugStringA(debug_msg);
 
-    HRESULT hr = ReadAudioFile(current_playback_path_, audio_data, &file_format);
+    HRESULT hr = ReadAudioFile(playback_path, audio_data, &file_format);
     if (FAILED(hr)) {
       // Log error for debugging
       sprintf_s(debug_msg, sizeof(debug_msg), "Failed to read audio file, HRESULT: 0x%08X\n", hr);
@@ -1088,6 +1082,13 @@ void FlutterF2fSoundPlugin::StartPlaybackThread() {
     // Set volume
     SetPlaybackVolume(current_volume_);
 
+    // Verify volume was set
+    double check_volume = 0.0;
+    GetPlaybackVolume(&check_volume);
+    sprintf_s(debug_msg, sizeof(debug_msg), "Volume verification: requested=%.2f, actual=%.2f\n",
+              current_volume_.load(), check_volume);
+    OutputDebugStringA(debug_msg);
+
     UINT32 data_index = 0;
     const UINT32 bytes_per_frame = playback_wave_format_->nBlockAlign;
     const double samples_per_second = static_cast<double>(playback_wave_format_->nSamplesPerSec);
@@ -1161,12 +1162,12 @@ void FlutterF2fSoundPlugin::StartPlaybackThread() {
 
         // Log position updates periodically
         static int position_log_count = 0;
-        if ((position_log_count++ % 100) == 0) {
-          sprintf_s(debug_msg, sizeof(debug_msg),
-            "Position update: samples_written=%u, current_position=%.2f\n",
-            samples_written, current_position_.load());
-          OutputDebugStringA(debug_msg);
-        }
+        // if ((position_log_count++ % 100) == 0) {
+        //   sprintf_s(debug_msg, sizeof(debug_msg),
+        //     "Position update: samples_written=%u, current_position=%.2f\n",
+        //     samples_written, current_position_.load());
+        //   OutputDebugStringA(debug_msg);
+        // }
 
         data_index += bytes_to_copy;
 
@@ -1195,6 +1196,8 @@ void FlutterF2fSoundPlugin::StartPlaybackThread() {
       // Release buffer
       hr = render_client_->ReleaseBuffer(frames_to_write, 0);
       if (FAILED(hr)) {
+        sprintf_s(debug_msg, sizeof(debug_msg), "ReleaseBuffer failed: 0x%08X\n", hr);
+        OutputDebugStringA(debug_msg);
         break;
       }
     }
@@ -1492,7 +1495,7 @@ HRESULT FlutterF2fSoundPlugin::ConvertAudioFormat(const WAVEFORMATEX* input_form
     input_samples, output_frames, output_data_size);
   OutputDebugStringA(debug_msg);
 
-  // Case 1: 16-bit PCM stereo to 32-bit Float stereo (most common)
+  // Case 1: 16-bit PCM stereo to 32-bit Float stereo (same sample rate)
   if (input_format->wBitsPerSample == 16 && output_format->wBitsPerSample == 32 &&
       input_format->nChannels == output_format->nChannels &&
       input_format->nSamplesPerSec == output_format->nSamplesPerSec) {
@@ -1515,9 +1518,10 @@ HRESULT FlutterF2fSoundPlugin::ConvertAudioFormat(const WAVEFORMATEX* input_form
     return S_OK;
   }
 
-  // Case 2: 16-bit PCM mono to 32-bit Float stereo
+  // Case 2: 16-bit PCM mono to 32-bit Float stereo (same sample rate)
   if (input_format->wBitsPerSample == 16 && output_format->wBitsPerSample == 32 &&
-      input_format->nChannels == 1 && output_format->nChannels == 2) {
+      input_format->nChannels == 1 && output_format->nChannels == 2 &&
+      input_format->nSamplesPerSec == output_format->nSamplesPerSec) {
 
     sprintf_s(debug_msg, sizeof(debug_msg), "Converting 16-bit PCM mono to 32-bit Float stereo\n");
     OutputDebugStringA(debug_msg);
@@ -1538,7 +1542,47 @@ HRESULT FlutterF2fSoundPlugin::ConvertAudioFormat(const WAVEFORMATEX* input_form
     return S_OK;
   }
 
-  // Case 3: Same format, just copy
+  // Case 3: 16-bit PCM to 32-bit Float with sample rate conversion (stereo)
+  if (input_format->wBitsPerSample == 16 && output_format->wBitsPerSample == 32 &&
+      input_format->nChannels == output_format->nChannels) {
+
+    sprintf_s(debug_msg, sizeof(debug_msg), "Converting 16-bit PCM to 32-bit Float with sample rate conversion\n");
+    OutputDebugStringA(debug_msg);
+
+    const int16_t* input = reinterpret_cast<const int16_t*>(input_data.data());
+    float* output = reinterpret_cast<float*>(output_data.data());
+
+    double sample_rate_ratio = (double)output_format->nSamplesPerSec / (double)input_format->nSamplesPerSec;
+
+    // Convert with sample rate conversion using linear interpolation
+    for (size_t i = 0; i < output_frames; i++) {
+      // Calculate source sample position (floating point)
+      double src_pos = i / sample_rate_ratio;
+      size_t src_index = static_cast<size_t>(src_pos);
+
+      // Linear interpolation between two samples
+      if (src_index + 1 < input_samples) {
+        float sample1 = static_cast<float>(input[src_index * input_format->nChannels]) / 32768.0f;
+        float sample2 = static_cast<float>(input[(src_index + 1) * input_format->nChannels]) / 32768.0f;
+        float frac = static_cast<float>(src_pos - src_index);
+
+        for (int ch = 0; ch < input_format->nChannels; ch++) {
+          output[i * input_format->nChannels + ch] = sample1 * (1.0f - frac) + sample2 * frac;
+        }
+      } else {
+        // Near the end, just use the last sample
+        for (int ch = 0; ch < input_format->nChannels; ch++) {
+          output[i * input_format->nChannels + ch] = static_cast<float>(input[src_index * input_format->nChannels + ch]) / 32768.0f;
+        }
+      }
+    }
+
+    sprintf_s(debug_msg, sizeof(debug_msg), "Conversion complete: %zu frames converted with resampling\n", output_frames);
+    OutputDebugStringA(debug_msg);
+    return S_OK;
+  }
+
+  // Case 4: Same format, just copy
   if (!need_bit_depth_conversion && !need_channel_conversion && !need_rate_conversion) {
     sprintf_s(debug_msg, sizeof(debug_msg), "No conversion needed, copying data\n");
     OutputDebugStringA(debug_msg);
@@ -1546,7 +1590,7 @@ HRESULT FlutterF2fSoundPlugin::ConvertAudioFormat(const WAVEFORMATEX* input_form
     return S_OK;
   }
 
-  // Case 4: Unsupported conversion - log error and copy as fallback
+  // Case 5: Unsupported conversion - log error and copy as fallback
   sprintf_s(debug_msg, sizeof(debug_msg),
     "WARNING: Unsupported format conversion, copying as fallback. This may produce no audio!\n");
   OutputDebugStringA(debug_msg);
@@ -1603,13 +1647,29 @@ HRESULT FlutterF2fSoundPlugin::DownloadAudioFile(const std::string& url, std::st
   char temp_file[MAX_PATH];
   GetTempFileNameA(temp_path, "audio", 0, temp_file);
 
-  // Change extension to .wav if not already
-  local_path = temp_file;
-  // Remove the .tmp extension and add .wav
-  local_path = local_path.substr(0, local_path.find_last_of('.'));
-  local_path += ".wav";
+  // Extract file extension from URL
+  std::string extension = ".wav";  // Default extension
+  size_t query_pos = url.find('?');
+  size_t url_end = (query_pos != std::string::npos) ? query_pos : url.length();
+  size_t last_dot = url.find_last_of('.', url_end);
 
-  sprintf_s(debug_msg, sizeof(debug_msg), "Downloading URL: %s to: %s\n", url.c_str(), local_path.c_str());
+  if (last_dot != std::string::npos && last_dot < url_end) {
+    extension = url.substr(last_dot, url_end - last_dot);
+    // Convert extension to lowercase
+    for (char& c : extension) {
+      if (c >= 'A' && c <= 'Z') {
+        c = c - 'A' + 'a';
+      }
+    }
+  }
+
+  // Remove the .tmp extension and add the correct extension from URL
+  local_path = temp_file;
+  local_path = local_path.substr(0, local_path.find_last_of('.'));
+  local_path += extension;
+
+  sprintf_s(debug_msg, sizeof(debug_msg), "Downloading URL: %s to: %s (extension: %s)\n",
+            url.c_str(), local_path.c_str(), extension.c_str());
   OutputDebugStringA(debug_msg);
 
   // Use WinHTTP for downloading
@@ -2072,6 +2132,17 @@ HRESULT FlutterF2fSoundPlugin::ReadAudioFileWithMF(const std::string& path, std:
     delete[] buffer;
 
     sprintf_s(debug_msg, sizeof(debug_msg), "Read %zu bytes of audio data\n", temp_buffer.size());
+    OutputDebugStringA(debug_msg);
+
+    // Calculate expected duration based on data size and format
+    UINT32 bytes_per_sample = (*format)->wBitsPerSample / 8;
+    UINT32 bytes_per_frame_calc = (*format)->nChannels * bytes_per_sample;
+    double bytes_per_second_calc = (*format)->nSamplesPerSec * bytes_per_frame_calc;
+    double expected_duration = temp_buffer.size() / bytes_per_second_calc;
+
+    sprintf_s(debug_msg, sizeof(debug_msg),
+      "Audio stats: size=%zu bytes, bytes_per_frame=%u, bytes_per_sec=%.0f, expected_duration=%.2f sec\n",
+      temp_buffer.size(), bytes_per_frame_calc, bytes_per_second_calc, expected_duration);
     OutputDebugStringA(debug_msg);
 
     audio_data = std::move(temp_buffer);

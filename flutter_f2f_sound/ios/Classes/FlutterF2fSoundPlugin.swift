@@ -5,91 +5,169 @@ import AVFoundation
 // AudioManager handles all audio playback operations
 class AudioManager {
     private var audioPlayer: AVAudioPlayer?
-    
+    private var audioPlayerItem: AVPlayerItem?
+    private var audioPlayerAV: AVPlayer?
+    private var useAVPlayer = false  // Flag to track if we're using AVPlayer for network streams
+
     // Play audio from the given path
     func play(path: String, volume: Double, loop: Bool) {
         stop() // Stop any currently playing audio
-        
-        do {
-            // Handle different path types
-            let url: URL
-            if path.starts(with: "http") || path.starts(with: "https") {
-                // Network URL
-                url = URL(string: path)! 
-            } else if path.starts(with: "file://") {
-                // File URL
-                url = URL(string: path)! 
+
+        // Handle different path types
+        let url: URL
+        if path.starts(with: "http") || path.starts(with: "https") {
+            // Network URL - use AVPlayer for better async support
+            url = URL(string: path)!
+            useAVPlayer = true
+
+            // Create AVPlayer for network streams (non-blocking)
+            let playerItem = AVPlayerItem(url: url)
+            audioPlayerAV = AVPlayer(playerItem: playerItem)
+            audioPlayerItem = playerItem
+
+            // Setup volume
+            audioPlayerAV?.volume = Float(volume)
+
+            // Setup looping
+            if loop {
+                NotificationCenter.default.addObserver(
+                    self,
+                    selector: #selector(playerItemDidReachEnd),
+                    name: .AVPlayerItemDidPlayToEndTime,
+                    object: playerItem
+                )
+            }
+
+            // Start playing (non-blocking for network streams)
+            audioPlayerAV?.play()
+        } else {
+            // Local file - use AVAudioPlayer
+            useAVPlayer = false
+
+            if path.starts(with: "file://") {
+                url = URL(string: path)!
             } else {
-                // Local file path
                 url = URL(fileURLWithPath: path)
             }
-            
-            audioPlayer = try AVAudioPlayer(contentsOf: url)
-            audioPlayer?.volume = Float(volume)
-            audioPlayer?.numberOfLoops = loop ? -1 : 0
-            audioPlayer?.prepareToPlay()
-            audioPlayer?.play()
-        } catch let error {
-            print("Error playing audio: \(error.localizedDescription)")
+
+            do {
+                audioPlayer = try AVAudioPlayer(contentsOf: url)
+                audioPlayer?.volume = Float(volume)
+                audioPlayer?.numberOfLoops = loop ? -1 : 0
+                audioPlayer?.prepareToPlay()  // Fast for local files
+                audioPlayer?.play()
+            } catch let error {
+                print("Error playing audio: \(error.localizedDescription)")
+            }
         }
     }
-    
+
+    @objc func playerItemDidReachEnd(notification: NSNotification) {
+        if let playerItem = notification.object as? AVPlayerItem {
+            playerItem.seek(to: .zero)
+            audioPlayerAV?.play()
+        }
+    }
+
     // Pause the currently playing audio
     func pause() {
-        if audioPlayer?.isPlaying ?? false {
-            audioPlayer?.pause()
+        if useAVPlayer {
+            audioPlayerAV?.pause()
+        } else {
+            if audioPlayer?.isPlaying ?? false {
+                audioPlayer?.pause()
+            }
         }
     }
-    
+
     // Stop the currently playing audio
     func stop() {
-        audioPlayer?.stop()
-        audioPlayer = nil
-    }
-    
-    // Resume playback of paused audio
-    func resume() {
-        if audioPlayer != nil && !(audioPlayer?.isPlaying ?? true) {
-            audioPlayer?.play()
+        if useAVPlayer {
+            audioPlayerAV?.pause()
+            audioPlayerAV?.seek(to: .zero)
+            NotificationCenter.default.removeObserver(self)
+            audioPlayerAV = nil
+            audioPlayerItem = nil
+        } else {
+            audioPlayer?.stop()
+            audioPlayer = nil
         }
     }
-    
+
+    // Resume playback of paused audio
+    func resume() {
+        if useAVPlayer {
+            audioPlayerAV?.play()
+        } else {
+            if audioPlayer != nil && !(audioPlayer?.isPlaying ?? true) {
+                audioPlayer?.play()
+            }
+        }
+    }
+
     // Set the volume of the currently playing audio (0.0 to 1.0)
     func setVolume(volume: Double) {
-        audioPlayer?.volume = Float(volume)
+        if useAVPlayer {
+            audioPlayerAV?.volume = Float(volume)
+        } else {
+            audioPlayer?.volume = Float(volume)
+        }
     }
-    
+
     // Check if audio is currently playing
     func isPlaying() -> Bool {
-        return audioPlayer?.isPlaying ?? false
+        if useAVPlayer {
+            // Check if AVPlayer is playing
+            guard let player = audioPlayerAV else { return false }
+            return player.rate != 0
+        } else {
+            return audioPlayer?.isPlaying ?? false
+        }
     }
-    
+
     // Get the current playback position in seconds
     func getCurrentPosition() -> Double {
-        return audioPlayer?.currentTime ?? 0.0
+        if useAVPlayer {
+            return audioPlayerAV?.currentTime().seconds ?? 0.0
+        } else {
+            return audioPlayer?.currentTime ?? 0.0
+        }
     }
-    
+
     // Get the duration of the audio file in seconds
     func getDuration(path: String) -> Double {
+        // For network URLs, return 0.0 to avoid blocking
+        if path.starts(with: "http") || path.starts(with: "https") {
+            return 0.0  // Duration will be available when player is ready
+        }
+
+        // For local files, load synchronously (fast)
         do {
-            // Handle different path types
             let url: URL
-            if path.starts(with: "http") || path.starts(with: "https") {
-                // Network URL
-                url = URL(string: path)! 
-            } else if path.starts(with: "file://") {
-                // File URL
-                url = URL(string: path)! 
+            if path.starts(with: "file://") {
+                url = URL(string: path)!
             } else {
-                // Local file path
                 url = URL(fileURLWithPath: path)
             }
-            
+
             let tempPlayer = try AVAudioPlayer(contentsOf: url)
             return tempPlayer.duration
         } catch let error {
             print("Error getting duration: \(error.localizedDescription)")
             return 0.0
+        }
+    }
+
+    // Get the duration of currently playing audio
+    func getPlayingDuration() -> Double {
+        if useAVPlayer {
+            // Get duration from AVPlayer
+            if let playerItem = audioPlayerItem {
+                return playerItem.duration.seconds
+            }
+            return 0.0
+        } else {
+            return audioPlayer?.duration ?? 0.0
         }
     }
 }

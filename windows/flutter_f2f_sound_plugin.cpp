@@ -72,6 +72,12 @@ void FlutterF2fSoundPlugin::RegisterWithRegistrar(
           registrar->messenger(), "com.tecmore.flutter_f2f_sound/system_sound_stream",
           &flutter::StandardMethodCodec::GetInstance());
 
+  // Event channel for playback stream
+  auto playback_event_channel =
+      std::make_unique<flutter::EventChannel<flutter::EncodableValue>>(
+          registrar->messenger(), "com.tecmore.flutter_f2f_sound/playback_stream",
+          &flutter::StandardMethodCodec::GetInstance());
+
   auto plugin = std::make_unique<FlutterF2fSoundPlugin>();
 
   method_channel->SetMethodCallHandler(
@@ -102,6 +108,19 @@ void FlutterF2fSoundPlugin::RegisterWithRegistrar(
           },
           [plugin_pointer = plugin.get()](const flutter::EncodableValue* arguments) {
             plugin_pointer->OnCancelSystemSound(arguments);
+            return nullptr;
+          }));
+
+  // Set up playback stream handler
+  playback_event_channel->SetStreamHandler(
+      std::make_unique<flutter::StreamHandlerFunctions<flutter::EncodableValue>>(
+          [plugin_pointer = plugin.get()](const flutter::EncodableValue* arguments,
+                                          std::unique_ptr<flutter::EventSink<flutter::EncodableValue>>&& events) {
+            plugin_pointer->OnListenPlaybackStream(arguments, std::move(events));
+            return nullptr;
+          },
+          [plugin_pointer = plugin.get()](const flutter::EncodableValue* arguments) {
+            plugin_pointer->OnCancelPlaybackStream(arguments);
             return nullptr;
           }));
 
@@ -334,7 +353,35 @@ void FlutterF2fSoundPlugin::HandleMethodCall(
     // Explicitly return as double to avoid type confusion
     result->Success(flutter::EncodableValue(static_cast<double>(duration)));
   } else if (method_call.method_name().compare("startPlaybackStream") == 0) {
-    // TODO: Implement playback stream
+    // Parse the arguments to get the audio file path
+    const auto* args = std::get_if<flutter::EncodableMap>(method_call.arguments());
+    if (!args) {
+      result->Error("ARGUMENT_ERROR", "Invalid arguments for startPlaybackStream");
+      return;
+    }
+
+    const auto* path_value = args->find(flutter::EncodableValue("path"));
+    if (!path_value) {
+      result->Error("ARGUMENT_ERROR", "Missing 'path' argument");
+      return;
+    }
+
+    std::string path = std::get<std::string>(*path_value);
+
+    // Stop any existing playback stream
+    if (is_playback_streaming_) {
+      is_playback_streaming_ = false;
+      if (playback_stream_thread_.joinable()) {
+        playback_stream_thread_.join();
+      }
+    }
+
+    // Start a new playback stream thread
+    is_playback_streaming_ = true;
+    playback_stream_thread_ = std::thread([this, path]() {
+      PlaybackStreamThread(path);
+    });
+
     result->Success(flutter::EncodableValue(nullptr));
   } else {
     result->NotImplemented();
@@ -363,6 +410,44 @@ void FlutterF2fSoundPlugin::OnCancelSystemSound(const flutter::EncodableValue *a
     is_capturing_system_sound_ = false;
     if (system_sound_thread_.joinable()) {
       system_sound_thread_.join();
+    }
+  }
+}
+
+void FlutterF2fSoundPlugin::OnListenPlaybackStream(const flutter::EncodableValue *arguments, 
+                                                  std::unique_ptr<flutter::EventSink<flutter::EncodableValue>> &&events) {
+  std::lock_guard<std::mutex> lock(playback_stream_mutex_);
+  playback_stream_event_sink_ = std::move(events);
+}
+
+void FlutterF2fSoundPlugin::OnCancelPlaybackStream(const flutter::EncodableValue *arguments) {
+  std::lock_guard<std::mutex> lock(playback_stream_mutex_);
+  playback_stream_event_sink_.reset();
+  
+  // Stop playback streaming
+  if (is_playback_streaming_) {
+    is_playback_streaming_ = false;
+    if (playback_stream_thread_.joinable()) {
+      playback_stream_thread_.join();
+    }
+  }
+}
+
+void FlutterF2fSoundPlugin::ProcessPlaybackStreamData(const std::vector<uint8_t>& audio_data) {
+  std::lock_guard<std::mutex> lock(playback_stream_mutex_);
+  
+  if (playback_stream_event_sink_ && !audio_data.empty()) {
+    // Create EncodableList from audio data
+    flutter::EncodableList encodable_audio_data;
+    for (uint8_t byte : audio_data) {
+      encodable_audio_data.push_back(static_cast<int>(byte));
+    }
+    
+    // Send data to Flutter (now on platform thread)
+    playback_stream_event_sink_->Success(flutter::EncodableValue(encodable_audio_data));
+  } else {
+    if (!playback_stream_event_sink_) {
+      OutputDebugStringA("ProcessPlaybackStreamData: No event sink!");
     }
   }
 }
@@ -1948,6 +2033,206 @@ void FlutterF2fSoundPlugin::ProcessSystemSoundData(const std::vector<uint8_t>& a
       OutputDebugStringA("ProcessSystemSoundData: No event sink!\n");
     }
   }
+}
+
+void FlutterF2fSoundPlugin::PlaybackStreamThread(const std::string& path) {
+  // This implementation uses a simple file reading approach for demonstration
+  // A production implementation would use Media Foundation for better format support
+  
+  OutputDebugStringA(("Starting playback stream thread for: " + path + "\n").c_str());
+  
+  // Check if it's a network URL
+  if (path.find("http://") == 0 || path.find("https://") == 0) {
+    // For network URLs, use WinHttp to download the content
+    HINTERNET hSession = WinHttpOpen(L"FlutterF2fSound/1.0",
+        WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
+        WINHTTP_NO_PROXY_NAME,
+        WINHTTP_NO_PROXY_BYPASS,
+        0);
+    
+    if (!hSession) {
+      OutputDebugStringA("Failed to create WinHttp session");
+      return;
+    }
+    
+    // Convert path to wide string
+    int wide_length = MultiByteToWideChar(CP_UTF8, 0, path.c_str(), -1, nullptr, 0);
+    std::wstring wide_path(wide_length, L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, path.c_str(), -1, &wide_path[0], wide_length);
+    
+    URL_COMPONENTS url_components = {0};
+    url_components.dwStructSize = sizeof(URL_COMPONENTS);
+    
+    // Initialize URL components
+    wchar_t host_name[256] = {0};
+    url_components.lpszHostName = host_name;
+    url_components.dwHostNameLength = sizeof(host_name) / sizeof(wchar_t);
+    
+    DWORD port = 0;
+    url_components.dwPort = port;
+    
+    wchar_t path_component[1024] = {0};
+    url_components.lpszUrlPath = path_component;
+    url_components.dwUrlPathLength = sizeof(path_component) / sizeof(wchar_t);
+    
+    wchar_t extra_info[1024] = {0};
+    url_components.lpszExtraInfo = extra_info;
+    url_components.dwExtraInfoLength = sizeof(extra_info) / sizeof(wchar_t);
+    
+    if (!WinHttpCrackUrl(wide_path.c_str(), 0, 0, &url_components)) {
+      OutputDebugStringA("Failed to parse URL");
+      WinHttpCloseHandle(hSession);
+      return;
+    }
+    
+    // Use default HTTPS port if not specified
+    DWORD actual_port = url_components.dwPort != 0 ? url_components.dwPort : 443;
+    bool is_https = (url_components.nScheme == INTERNET_SCHEME_HTTPS);
+    
+    HINTERNET hConnect = WinHttpConnect(hSession,
+        host_name,
+        actual_port,
+        0);
+    
+    if (!hConnect) {
+      OutputDebugStringA("Failed to connect to host");
+      WinHttpCloseHandle(hSession);
+      return;
+    }
+    
+    // Build request path (include extra info)
+    std::wstring request_path = path_component;
+    if (url_components.lpszExtraInfo && url_components.dwExtraInfoLength > 0) {
+      request_path += extra_info;
+    }
+    
+    HINTERNET hRequest = WinHttpOpenRequest(hConnect,
+        L"GET",
+        request_path.c_str(),
+        nullptr,
+        WINHTTP_NO_REFERER,
+        WINHTTP_DEFAULT_ACCEPT_TYPES,
+        is_https ? WINHTTP_FLAG_SECURE : 0);
+    
+    if (!hRequest) {
+      OutputDebugStringA("Failed to open request");
+      WinHttpCloseHandle(hConnect);
+      WinHttpCloseHandle(hSession);
+      return;
+    }
+    
+    // Send request
+    if (!WinHttpSendRequest(hRequest,
+        WINHTTP_NO_ADDITIONAL_HEADERS,
+        0,
+        WINHTTP_NO_REQUEST_DATA,
+        0,
+        0,
+        0)) {
+      OutputDebugStringA("Failed to send request");
+      WinHttpCloseHandle(hRequest);
+      WinHttpCloseHandle(hConnect);
+      WinHttpCloseHandle(hSession);
+      return;
+    }
+    
+    // Receive response
+    if (!WinHttpReceiveResponse(hRequest, nullptr)) {
+      OutputDebugStringA("Failed to receive response");
+      WinHttpCloseHandle(hRequest);
+      WinHttpCloseHandle(hConnect);
+      WinHttpCloseHandle(hSession);
+      return;
+    }
+    
+    // Stream the data
+    const size_t buffer_size = 4096;
+    BYTE buffer[buffer_size];
+    DWORD bytes_read;
+    
+    while (is_playback_streaming_ && WinHttpReadData(hRequest, buffer, buffer_size, &bytes_read) && bytes_read > 0) {
+      // Convert to vector
+      std::vector<uint8_t> audio_data(buffer, buffer + bytes_read);
+      
+      // Process and send the audio data
+      ProcessPlaybackStreamData(audio_data);
+      
+      // Simulate playback speed (adjust based on actual format)
+      Sleep(10); // Simple delay to control streaming rate
+    }
+    
+    // Cleanup
+    WinHttpCloseHandle(hRequest);
+    WinHttpCloseHandle(hConnect);
+    WinHttpCloseHandle(hSession);
+    
+    OutputDebugStringA("Network URL stream completed\n");
+    is_playback_streaming_ = false;
+    return;
+  }
+  
+  // For local files
+  HANDLE file_handle = CreateFileA(
+      path.c_str(),
+      GENERIC_READ,
+      FILE_SHARE_READ,
+      nullptr,
+      OPEN_EXISTING,
+      FILE_ATTRIBUTE_NORMAL,
+      nullptr);
+  
+  if (file_handle == INVALID_HANDLE_VALUE) {
+    OutputDebugStringA("Failed to open audio file");
+    return;
+  }
+  
+  // Read the file header to determine format (simplified)
+  BYTE header_buffer[1024];
+  DWORD bytes_read;
+  if (!ReadFile(file_handle, header_buffer, sizeof(header_buffer), &bytes_read, nullptr)) {
+    OutputDebugStringA("Failed to read audio file header");
+    CloseHandle(file_handle);
+    return;
+  }
+  
+  // Simple WAV file validation
+  bool is_wav = false;
+  if (bytes_read >= 4 && memcmp(header_buffer, "RIFF", 4) == 0 &&
+      bytes_read >= 8 && memcmp(header_buffer + 8, "WAVE", 4) == 0) {
+    is_wav = true;
+  }
+  
+  // If it's not a WAV file, we'll still try to stream it as raw data
+  if (!is_wav) {
+    OutputDebugStringA("Warning: Not a recognized WAV file, streaming as raw data");
+  }
+  
+  // Reset file pointer to beginning
+  SetFilePointer(file_handle, 0, nullptr, FILE_BEGIN);
+  
+  // Stream the audio data
+  const size_t buffer_size = 4096;
+  BYTE buffer[buffer_size];
+  
+  while (is_playback_streaming_) {
+    if (!ReadFile(file_handle, buffer, buffer_size, &bytes_read, nullptr) || bytes_read == 0) {
+      // End of file or error
+      break;
+    }
+    
+    // Convert to vector
+    std::vector<uint8_t> audio_data(buffer, buffer + bytes_read);
+    
+    // Process and send the audio data
+    ProcessPlaybackStreamData(audio_data);
+    
+    // Simulate playback speed (adjust based on actual format)
+    Sleep(10); // Simple delay to control streaming rate
+  }
+  
+  CloseHandle(file_handle);
+  OutputDebugStringA("Playback stream thread finished\n");
+  is_playback_streaming_ = false;
 }
 
 bool FlutterF2fSoundPlugin::IsMP3(const std::string& path) {

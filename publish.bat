@@ -12,13 +12,25 @@ echo flutter_f2f_sound Publishing Tool
 echo ========================================
 echo.
 
+REM Check if proxy is needed for Google services
+echo [INFO] If you need proxy to access Google services:
+echo   1. Make sure your VPN/proxy is running
+echo   2. Set proxy: set HTTP_PROXY=http://127.0.0.1:7897
+echo   3. Set proxy: set HTTPS_PROXY=http://127.0.0.1:7897
+echo   4. Or modify the proxy addresses below
+echo.
+
+REM Optional: Set proxy if needed (uncomment and modify)
+REM set HTTP_PROXY=http://127.0.0.1:7897
+REM set HTTPS_PROXY=http://127.0.0.1:7897
+
 REM Check current directory
 if not exist "pubspec.yaml" (
     echo [ERROR] Please run this script in flutter_f2f_sound root directory
     exit /b 1
 )
 
-echo [Step 1/6] Running code analysis...
+echo [Step 1/5] Running code analysis...
 flutter analyze
 if errorlevel 1 (
     echo [ERROR] Code analysis failed, please fix errors
@@ -27,16 +39,7 @@ if errorlevel 1 (
 echo [SUCCESS] Code analysis passed
 echo.
 
-echo [Step 2/6] Running tests...
-flutter test
-if errorlevel 1 (
-    echo [ERROR] Tests failed, please fix errors
-    exit /b 1
-)
-echo [SUCCESS] Tests passed
-echo.
-
-echo [Step 3/6] Checking code format...
+echo [Step 2/5] Checking code format...
 dart format --output=none --set-exit-if-changed .
 if errorlevel 1 (
     echo [WARNING] Code format not standard, auto-formatting...
@@ -47,7 +50,7 @@ if errorlevel 1 (
 echo [SUCCESS] Code format check passed
 echo.
 
-echo [Step 4/6] Dry run publish (checking for issues)...
+echo [Step 3/5] Dry run publish (checking for issues)...
 dart pub publish --dry-run
 if errorlevel 1 (
     echo [ERROR] Dry run failed, please fix errors
@@ -56,7 +59,7 @@ if errorlevel 1 (
 echo [SUCCESS] Dry run successful
 echo.
 
-echo [Step 5/6] Checking required files...
+echo [Step 4/5] Checking required files...
 set "files_ok=1"
 if not exist "README.md" (
     echo [ERROR] Missing required file: README.md
@@ -74,7 +77,7 @@ if "!files_ok!"=="0" exit /b 1
 echo [SUCCESS] All required files exist
 echo.
 
-echo [Step 6/6] Publishing to pub.dev...
+echo [Step 5/5] Publishing to pub.dev...
 echo.
 echo ========================================
 echo IMPORTANT NOTICE

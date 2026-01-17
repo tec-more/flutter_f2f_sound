@@ -19,12 +19,14 @@ import io.flutter.plugin.common.MethodChannel.MethodCallHandler
 import io.flutter.plugin.common.MethodChannel.Result
 import java.io.FileInputStream
 import java.io.IOException
+import java.io.InputStream
+import java.net.HttpURLConnection
+import java.net.URL
 
 /** FlutterF2fSoundPlugin */
 class FlutterF2fSoundPlugin :
     FlutterPlugin,
-    MethodCallHandler, 
-    EventChannel.StreamHandler {
+    MethodCallHandler {
     // The MethodChannel that will the communication between Flutter and native Android
     //
     // This local reference serves to register the plugin with the Flutter Engine and unregister it
@@ -32,12 +34,16 @@ class FlutterF2fSoundPlugin :
     private lateinit var channel: MethodChannel
     private lateinit var audioManager: F2fAudioManager
     private lateinit var eventChannel: EventChannel
+    private lateinit var playbackEventChannel: EventChannel
+    private lateinit var systemSoundEventChannel: EventChannel
     
     // Audio recording variables
     private var audioRecord: AudioRecord? = null
     private var isRecording = false
     private var recordingThread: Thread? = null
     private var eventSink: EventSink? = null
+    private var playbackEventSink: EventSink? = null
+    private var systemSoundEventSink: EventSink? = null
     
     // Main thread handler for communication with Flutter
     private val mainThreadHandler = Handler(Looper.getMainLooper())
@@ -47,9 +53,39 @@ class FlutterF2fSoundPlugin :
         channel.setMethodCallHandler(this)
         audioManager = F2fAudioManager(flutterPluginBinding.applicationContext)
         
-        // Initialize event channel for audio streams
+        // Initialize event channel for audio recording streams
         eventChannel = EventChannel(flutterPluginBinding.binaryMessenger, "com.tecmore.flutter_f2f_sound/recording_stream")
-        eventChannel.setStreamHandler(this)
+        eventChannel.setStreamHandler(object : EventChannel.StreamHandler {
+            override fun onListen(arguments: Any?, events: EventSink?) {
+                eventSink = events
+            }
+            override fun onCancel(arguments: Any?) {
+                eventSink = null
+                stopRecording(null)
+            }
+        })
+        
+        // Initialize event channel for audio playback streams
+        playbackEventChannel = EventChannel(flutterPluginBinding.binaryMessenger, "com.tecmore.flutter_f2f_sound/playback_stream")
+        playbackEventChannel.setStreamHandler(object : EventChannel.StreamHandler {
+            override fun onListen(arguments: Any?, events: EventSink?) {
+                playbackEventSink = events
+            }
+            override fun onCancel(arguments: Any?) {
+                playbackEventSink = null
+            }
+        })
+        
+        // Initialize event channel for system sound capture streams
+        systemSoundEventChannel = EventChannel(flutterPluginBinding.binaryMessenger, "com.tecmore.flutter_f2f_sound/system_sound_stream")
+        systemSoundEventChannel.setStreamHandler(object : EventChannel.StreamHandler {
+            override fun onListen(arguments: Any?, events: EventSink?) {
+                systemSoundEventSink = events
+            }
+            override fun onCancel(arguments: Any?) {
+                systemSoundEventSink = null
+            }
+        })
     }
 
     override fun onMethodCall(
@@ -121,16 +157,6 @@ class FlutterF2fSoundPlugin :
                 result.notImplemented()
             }
         }
-    }
-
-    // EventChannel.StreamHandler implementation
-    override fun onListen(arguments: Any?, events: EventSink?) {
-        eventSink = events
-    }
-
-    override fun onCancel(arguments: Any?) {
-        eventSink = null
-        stopRecording(null)
     }
 
     // Audio recording implementation
@@ -209,31 +235,44 @@ class FlutterF2fSoundPlugin :
             )
 
             val buffer = ByteArray(bufferSize)
-            var fileInputStream: FileInputStream? = null
+            var inputStream: InputStream? = null
 
             try {
-                val uri = if (path.startsWith("http")) {
-                    // For network URLs, we need to download first (simplified example)
-                    result?.error("NETWORK_NOT_SUPPORTED", "Network URLs not supported for playback stream", null)
-                    return@Thread
+                if (path.startsWith("http")) {
+                    // For network URLs, use HttpURLConnection
+                    val url = URL(path)
+                    val connection = url.openConnection() as HttpURLConnection
+                    connection.requestMethod = "GET"
+                    connection.connectTimeout = 5000
+                    connection.readTimeout = 5000
+                    connection.connect()
+                    
+                    if (connection.responseCode != HttpURLConnection.HTTP_OK) {
+                        result?.error("NETWORK_ERROR", "Failed to connect to URL: ${connection.responseMessage}", null)
+                        connection.disconnect()
+                        return@Thread
+                    }
+                    
+                    inputStream = connection.inputStream
                 } else {
-                    Uri.parse("file://$path")
+                    // For local files
+                    val uri = Uri.parse("file://$path")
+                    inputStream = FileInputStream(uri.path)
                 }
 
-                fileInputStream = FileInputStream(uri.path)
                 audioTrack.play()
 
                 var bytesRead: Int
-                while (fileInputStream.read(buffer).also { bytesRead = it } != -1 && eventSink != null) {
-                    audioTrack.write(buffer, 0, bytesRead)
-                    // Send audio data to Flutter on main thread
-                    val intList = ArrayList<Int>(bytesRead)
-                    for (i in 0 until bytesRead) {
-                        intList.add(buffer[i].toInt())
-                    }
-                    mainThreadHandler.post {
-                        eventSink?.success(intList)
-                    }
+                while (inputStream.read(buffer).also { bytesRead = it } != -1 && playbackEventSink != null) {
+                audioTrack.write(buffer, 0, bytesRead)
+                // Send audio data to Flutter on main thread
+                val intList = ArrayList<Int>(bytesRead)
+                for (i in 0 until bytesRead) {
+                    intList.add(buffer[i].toInt())
+                }
+                mainThreadHandler.post {
+                    playbackEventSink?.success(intList)
+                }
                 }
 
                 audioTrack.stop()
@@ -241,7 +280,7 @@ class FlutterF2fSoundPlugin :
             } catch (e: IOException) {
                 result?.error("PLAYBACK_STREAM_ERROR", e.message, null)
             } finally {
-                fileInputStream?.close()
+                inputStream?.close()
                 audioTrack.release()
             }
         }.start()

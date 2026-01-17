@@ -203,14 +203,23 @@ public class FlutterF2fSoundPlugin: NSObject, FlutterPlugin, FlutterStreamHandle
 
     // Recording thread
     private var recordingThread: Thread?
+    
+    // Playback stream properties
+    private var playbackStreamEngine: AVAudioEngine?
+    private var playbackStreamPlayerNode: AVAudioPlayerNode?
+    private var playbackStreamSink: FlutterEventSink?
+    private var playbackStreamUrl: URL?
+    private var isPlaybackStreaming = false
 
     public static func register(with registrar: FlutterPluginRegistrar) {
         let channel = FlutterMethodChannel(name: "com.tecmore.flutter_f2f_sound", binaryMessenger: registrar.messenger())
-        let eventChannel = FlutterEventChannel(name: "com.tecmore.flutter_f2f_sound/recording_stream", binaryMessenger: registrar.messenger())
+        let recordingEventChannel = FlutterEventChannel(name: "com.tecmore.flutter_f2f_sound/recording_stream", binaryMessenger: registrar.messenger())
+        let playbackEventChannel = FlutterEventChannel(name: "com.tecmore.flutter_f2f_sound/playback_stream", binaryMessenger: registrar.messenger())
         let instance = FlutterF2fSoundPlugin()
 
         registrar.addMethodCallDelegate(instance, channel: channel)
-        eventChannel.setStreamHandler(instance)
+        recordingEventChannel.setStreamHandler(instance)
+        playbackEventChannel.setStreamHandler(instance)
     }
 
     public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
@@ -263,6 +272,13 @@ public class FlutterF2fSoundPlugin: NSObject, FlutterPlugin, FlutterStreamHandle
             startRecording(result: result)
         case "stopRecording":
             stopRecording(result: result)
+        case "startPlaybackStream":
+            guard let arguments = call.arguments as? [String: Any],
+                  let path = arguments["path"] as? String else {
+                result(FlutterError(code: "INVALID_PATH", message: "Audio path is required", details: nil))
+                return
+            }
+            startPlaybackStream(path: path, result: result)
         default:
             result(FlutterMethodNotImplemented)
         }
@@ -355,6 +371,135 @@ public class FlutterF2fSoundPlugin: NSObject, FlutterPlugin, FlutterStreamHandle
 
         result(nil)
     }
+    
+    // MARK: - Audio Playback Stream
+    
+    private func startPlaybackStream(path: String, result: @escaping FlutterResult) {
+        // Stop any existing playback stream
+        if isPlaybackStreaming {
+            stopPlaybackStream()
+        }
+        
+        let url: URL
+        if path.starts(with: "http://") || path.starts(with: "https://") {
+            guard let networkUrl = URL(string: path) else {
+                result(FlutterError(code: "INVALID_URL", message: "Invalid network URL", details: nil))
+                return
+            }
+            url = networkUrl
+        } else {
+            url = URL(fileURLWithPath: path) // Local file
+        }
+        
+        playbackStreamUrl = url
+        
+        // Initialize playback engine and player node
+        playbackStreamEngine = AVAudioEngine()
+        playbackStreamPlayerNode = AVAudioPlayerNode()
+        
+        guard let engine = playbackStreamEngine, let playerNode = playbackStreamPlayerNode else {
+            result(FlutterError(code: "INIT_ERROR", message: "Failed to initialize playback stream", details: nil))
+            return
+        }
+        
+        engine.attach(playerNode)
+        
+        // Read audio file asynchronously
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                let audioFile = try AVAudioFile(forReading: url)
+                
+                DispatchQueue.main.async {
+                    let mainMixer = engine.mainMixerNode
+                    engine.connect(playerNode, to: mainMixer, format: audioFile.processingFormat)
+                    
+                    // Start playing and sending data
+                    self.playbackStreamSink = self.eventSink
+                    self.isPlaybackStreaming = true
+                    
+                    do {
+                        try engine.start()
+                        playerNode.play()
+                        
+                        // Read and stream audio data in a separate thread
+                        DispatchQueue.global(qos: .userInitiated).async {
+                            do {
+                                let bufferSize = AVAudioFrameCount(4096)
+                                var buffer = AVAudioPCMBuffer(pcmFormat: audioFile.processingFormat, frameCapacity: bufferSize)
+                                
+                                while audioFile.framePosition < audioFile.length && self.isPlaybackStreaming {
+                                    try audioFile.read(into: buffer)
+                                    if let pcmData = self.convertBufferToPCM(buffer: buffer) {
+                                        DispatchQueue.main.async {
+                                            self.playbackStreamSink?(pcmData)
+                                        }
+                                    }
+                                }
+                                
+                                DispatchQueue.main.async {
+                                    self.stopPlaybackStream()
+                                    result(nil)
+                                }
+                            } catch {
+                                DispatchQueue.main.async {
+                                    self.stopPlaybackStream()
+                                    result(FlutterError(code: "STREAM_ERROR", message: error.localizedDescription, details: nil))
+                                }
+                            }
+                        }
+                    } catch {
+                        self.stopPlaybackStream()
+                        result(FlutterError(code: "ENGINE_ERROR", message: error.localizedDescription, details: nil))
+                    }
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    self.stopPlaybackStream()
+                    result(FlutterError(code: "FILE_ERROR", message: "Could not open audio file", details: nil))
+                }
+            }
+        }
+    }
+    
+    private func stopPlaybackStream() {
+        isPlaybackStreaming = false
+        
+        // Stop playback engine and player node
+        if let playerNode = playbackStreamPlayerNode {
+            playerNode.stop()
+            playbackStreamPlayerNode = nil
+        }
+        
+        if let engine = playbackStreamEngine {
+            engine.stop()
+            engine.reset()
+            playbackStreamEngine = nil
+        }
+        
+        playbackStreamSink = nil
+        playbackStreamUrl = nil
+    }
+    
+    private func convertBufferToPCM(buffer: AVAudioPCMBuffer) -> [Int]? {
+        guard let channelData = buffer.floatChannelData, let floatData = channelData.pointee else {
+            return nil
+        }
+        
+        let frameCount = Int(buffer.frameLength)
+        let channelCount = Int(buffer.format.channelCount)
+        var pcmData = [Int](repeating: 0, count: frameCount * channelCount)
+        
+        for frame in 0..<frameCount {
+            for channel in 0..<channelCount {
+                let value = floatData[frame * channelCount + channel]
+                // Convert float (-1.0 to 1.0) to 16-bit PCM (-32768 to 32767)
+                let intValue = Int32(value * 32767.0)
+                pcmData[frame * channelCount + channel] = Int(intValue)
+            }
+        }
+        
+        return pcmData
+    }
 
     // MARK: - FlutterStreamHandler
 
@@ -366,6 +511,7 @@ public class FlutterF2fSoundPlugin: NSObject, FlutterPlugin, FlutterStreamHandle
     public func onCancel(withArguments arguments: Any?) -> FlutterError? {
         eventSink = nil
         stopRecording { _ in }
+        stopPlaybackStream()
         return nil
     }
 }

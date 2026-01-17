@@ -21,6 +21,12 @@ class MethodChannelFlutterF2fSound extends FlutterF2fSoundPlatform {
     'com.tecmore.flutter_f2f_sound/system_sound_stream',
   );
 
+  /// The event channel used to receive audio playback stream.
+  @visibleForTesting
+  final playbackEventChannel = const EventChannel(
+    'com.tecmore.flutter_f2f_sound/playback_stream',
+  );
+
   @override
   Future<String?> getPlatformVersion() async {
     final version = await methodChannel.invokeMethod<String>(
@@ -107,7 +113,7 @@ class MethodChannelFlutterF2fSound extends FlutterF2fSoundPlatform {
   @override
   Stream<List<int>> startPlaybackStream(String path) async* {
     await methodChannel.invokeMethod('startPlaybackStream', {'path': path});
-    yield* eventChannel.receiveBroadcastStream().map((event) {
+    yield* playbackEventChannel.receiveBroadcastStream().map((event) {
       final list = event as List<dynamic>;
       return list.map((e) => e as int).toList();
     });

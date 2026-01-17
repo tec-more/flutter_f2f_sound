@@ -47,6 +47,7 @@ struct AudioContext {
   // Event channels
   FlEventChannel* recording_event_channel = nullptr;
   FlEventChannel* system_sound_event_channel = nullptr;
+  FlEventChannel* playback_event_channel = nullptr;
 
   // Seeking support
   std::atomic<bool> seek_requested{false};
@@ -59,6 +60,7 @@ struct _FlutterF2fSoundPlugin {
   FlMethodChannel* method_channel = nullptr;
   FlEventChannel* recording_event_channel = nullptr;
   FlEventChannel* system_sound_event_channel = nullptr;
+  FlEventChannel* playback_event_channel = nullptr;
 };
 
 G_DEFINE_TYPE(FlutterF2fSoundPlugin, flutter_f2f_sound_plugin, g_object_get_type())
@@ -247,13 +249,33 @@ static void stream_write_cb(pa_stream* s, size_t nbytes, void* userdata) {
   size_t bytes_available = audio_ctx->audio_data.size() - audio_ctx->playback_index;
   size_t bytes_to_write = std::min(nbytes, bytes_available);
 
+  // Get the current audio data
+  const uint8_t* data_to_write = audio_ctx->audio_data.data() + audio_ctx->playback_index;
+
   // Write data to stream
   pa_stream_write(s,
-                  audio_ctx->audio_data.data() + audio_ctx->playback_index,
+                  data_to_write,
                   bytes_to_write,
                   nullptr,
                   0,
                   PA_SEEK_RELATIVE);
+
+  // Send audio data to Flutter via event channel
+  if (audio_ctx->playback_event_channel) {
+    // Create a list of integers from the audio data
+    g_autoptr(FlValue) list = fl_value_new_list();
+    for (size_t i = 0; i < bytes_to_write; i++) {
+      fl_value_append_take(list, fl_value_new_int(data_to_write[i]));
+    }
+
+    // Create event data
+    g_autoptr(FlValue) event = fl_value_new_map();
+    fl_value_set_string_take(event, "event", fl_value_new_string("data"));
+    fl_value_set_string_take(event, "data", g_steal_pointer(&list));
+
+    // Send the event
+    fl_event_channel_send(audio_ctx->playback_event_channel, event, nullptr, nullptr, nullptr);
+  }
 
   audio_ctx->playback_index += bytes_to_write;
 
@@ -447,14 +469,90 @@ static void flutter_f2f_sound_plugin_handle_method_call(
         // Load audio file (local or network)
         if (is_url(path)) {
           g_print("Downloading audio from: %s\n", path);
-          if (!download_audio_file(path, audio_data)) {
-            response = FL_METHOD_RESPONSE(fl_method_error_response_new("DOWNLOAD_ERROR", "Failed to download audio"));
-          } else {
-            // Try to parse as audio file using libsndfile
-            // For downloaded data, we'd need to save to temp file first
-            // For now, use the raw data
-            self->audio_ctx->audio_data = audio_data;
-          }
+          
+          // Create a copy of the path for thread safety
+          std::string url_path = path;
+          FlutterF2fSoundPlugin* plugin_ptr = self;
+          FlMethodCall* method_call_copy = fl_method_call_ref(method_call);
+          
+          // Start asynchronous download in a separate thread
+          std::thread download_thread([plugin_ptr, url_path, method_call_copy]() {
+            std::vector<uint8_t> audio_data;
+            int sample_rate = 44100;
+            int channels = 2;
+            
+            bool success = download_audio_file(url_path, audio_data);
+            
+            // Create a response on the main thread
+            g_main_context_invoke(nullptr, [plugin_ptr, url_path, audio_data, sample_rate, channels, success, method_call_copy]() {
+              if (!success) {
+                g_autoptr(FlMethodResponse) error_response = FL_METHOD_RESPONSE(
+                    fl_method_error_response_new("DOWNLOAD_ERROR", "Failed to download audio"));
+                fl_method_call_respond(method_call_copy, error_response, nullptr);
+              } else {
+                // Try to parse as audio file using libsndfile
+                // For downloaded data, we'd need to save to temp file first
+                // For now, use the raw data
+                plugin_ptr->audio_ctx->audio_data = audio_data;
+                plugin_ptr->audio_ctx->sample_rate = sample_rate;
+                plugin_ptr->audio_ctx->channels = channels;
+                
+                // Continue with playback setup
+                plugin_ptr->audio_ctx->is_playing = true;
+                plugin_ptr->audio_ctx->current_position = 0.0;
+                plugin_ptr->audio_ctx->volume = fl_value_get_float(fl_value_get_map_value(
+                    fl_method_call_get_args(method_call_copy), fl_value_new_string("volume")));
+                plugin_ptr->audio_ctx->playback_index = 0;
+                
+                // Create playback stream
+                pa_sample_spec ss;
+                ss.format = PA_SAMPLE_S16LE;
+                ss.rate = plugin_ptr->audio_ctx->sample_rate;
+                ss.channels = plugin_ptr->audio_ctx->channels;
+                
+                plugin_ptr->audio_ctx->playback_stream = pa_stream_new(
+                    plugin_ptr->audio_ctx->context,
+                    "FlutterF2FSound Playback",
+                    &ss,
+                    nullptr);
+                
+                if (plugin_ptr->audio_ctx->playback_stream) {
+                  pa_stream_set_write_callback(plugin_ptr->audio_ctx->playback_stream, stream_write_cb, plugin_ptr->audio_ctx);
+                  
+                  // Connect stream to default output
+                  pa_stream_connect_playback(
+                      plugin_ptr->audio_ctx->playback_stream,
+                      nullptr,
+                      nullptr,
+                      PA_STREAM_START_CORKED,
+                      nullptr,
+                      nullptr);
+                  
+                  // Start playback
+                  pa_stream_cork(plugin_ptr->audio_ctx->playback_stream, 0, nullptr, nullptr);
+                  
+                  g_print("Playing audio: %s (%.2f seconds)\n", url_path.c_str(),
+                          audio_data.size() / (double)(sample_rate * channels * sizeof(int16_t)));
+                  
+                  g_autoptr(FlMethodResponse) success_response = FL_METHOD_RESPONSE(
+                      fl_method_success_response_new(nullptr));
+                  fl_method_call_respond(method_call_copy, success_response, nullptr);
+                } else {
+                  g_autoptr(FlMethodResponse) error_response = FL_METHOD_RESPONSE(
+                      fl_method_error_response_new("STREAM_ERROR", "Failed to create playback stream"));
+                  fl_method_call_respond(method_call_copy, error_response, nullptr);
+                }
+              }
+              
+              fl_method_call_unref(method_call_copy);
+            });
+          });
+          
+          // Detach the thread to allow it to run independently
+          download_thread.detach();
+          
+          // Return early since we'll respond asynchronously
+          return;
         } else {
           // Load local file using libsndfile
           if (!load_audio_file(path, audio_data, sample_rate, channels)) {
@@ -662,6 +760,7 @@ static void flutter_f2f_sound_plugin_dispose(GObject* object) {
   g_clear_object(&self->method_channel);
   g_clear_object(&self->recording_event_channel);
   g_clear_object(&self->system_sound_event_channel);
+  g_clear_object(&self->playback_event_channel);
 
   G_OBJECT_CLASS(flutter_f2f_sound_plugin_parent_class)->dispose(object);
 }
@@ -716,6 +815,16 @@ void flutter_f2f_sound_plugin_register_with_registrar(FlPluginRegistrar* registr
   plugin->system_sound_event_channel = FL_EVENT_CHANNEL(g_steal_pointer(&system_sound_event_channel));
   if (plugin->audio_ctx) {
     plugin->audio_ctx->system_sound_event_channel = plugin->system_sound_event_channel;
+  }
+
+  // Create playback event channel
+  g_autoptr(FlEventChannel) playback_event_channel =
+      fl_event_channel_new(fl_plugin_registrar_get_messenger(registrar),
+                          "com.tecmore.flutter_f2f_sound/playback_stream",
+                          FL_METHOD_CODEC(event_codec));
+  plugin->playback_event_channel = FL_EVENT_CHANNEL(g_steal_pointer(&playback_event_channel));
+  if (plugin->audio_ctx) {
+    plugin->audio_ctx->playback_event_channel = plugin->playback_event_channel;
   }
 
   g_object_unref(plugin);

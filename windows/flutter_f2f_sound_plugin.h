@@ -64,6 +64,9 @@ class FlutterF2fSoundPlugin : public flutter::Plugin {
   void OnListenSystemSound(const flutter::EncodableValue *arguments,
                            std::unique_ptr<flutter::EventSink<flutter::EncodableValue>> &&events);
   void OnCancelSystemSound(const flutter::EncodableValue *arguments);
+  void OnListenPlaybackStream(const flutter::EncodableValue *arguments,
+                             std::unique_ptr<flutter::EventSink<flutter::EncodableValue>> &&events);
+  void OnCancelPlaybackStream(const flutter::EncodableValue *arguments);
 
  private:
   // Audio recording variables
@@ -78,10 +81,17 @@ class FlutterF2fSoundPlugin : public flutter::Plugin {
   std::unique_ptr<flutter::EventSink<flutter::EncodableValue>> system_sound_event_sink_;
   std::mutex system_sound_mutex_;
 
+  // Audio playback stream variables
+  std::atomic<bool> is_playback_streaming_{false};
+  std::thread playback_stream_thread_;
+  std::unique_ptr<flutter::EventSink<flutter::EncodableValue>> playback_stream_event_sink_;
+  std::mutex playback_stream_mutex_;
+
   HWND message_window_ = nullptr;  // Hidden window for thread-safe message dispatching
   static LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
   void ProcessRecordingData(const std::vector<uint8_t>& audio_data);
   void ProcessSystemSoundData(const std::vector<uint8_t>& audio_data);
+  void ProcessPlaybackStreamData(const std::vector<uint8_t>& audio_data);
 
   // WASAPI interfaces for recording
   IMMDeviceEnumerator* device_enumerator_ = nullptr;

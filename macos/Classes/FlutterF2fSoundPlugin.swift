@@ -29,8 +29,9 @@ public class FlutterF2fSoundPlugin: NSObject, FlutterPlugin, FlutterStreamHandle
     private var isLooping = false
 
     public static func register(with registrar: FlutterPluginRegistrar) {
-        let methodChannel = FlutterMethodChannel(name: "flutter_f2f_sound", binaryMessenger: registrar.messenger)
-        let eventChannel = FlutterEventChannel(name: "flutter_f2f_sound/recording_stream", binaryMessenger: registrar.messenger)
+        let methodChannel = FlutterMethodChannel(name: "com.tecmore.flutter_f2f_sound", binaryMessenger: registrar.messenger)
+        let eventChannel = FlutterEventChannel(name: "com.tecmore.flutter_f2f_sound/recording_stream", binaryMessenger: registrar.messenger)
+        let playbackEventChannel = FlutterEventChannel(name: "com.tecmore.flutter_f2f_sound/playback_stream", binaryMessenger: registrar.messenger)
         let instance = FlutterF2fSoundPlugin()
 
         instance.methodChannel = methodChannel
@@ -280,10 +281,13 @@ public class FlutterF2fSoundPlugin: NSObject, FlutterPlugin, FlutterStreamHandle
     private func startPlaybackStream(path: String, result: @escaping FlutterResult) {
         let url: URL
         if path.starts(with: "http://") || path.starts(with: "https://") {
-            result(FlutterError(code: "NOT_SUPPORTED", message: "Network URLs not supported for playback stream", details: nil))
-            return
+            guard let networkUrl = URL(string: path) else {
+                result(FlutterError(code: "INVALID_URL", message: "Invalid network URL", details: nil))
+                return
+            }
+            url = networkUrl
         } else {
-            url = URL(fileURLWithPath: path)
+            url = URL(fileURLWithPath: path) // Local file
         }
 
         playbackStreamEngine = AVAudioEngine()
@@ -291,40 +295,60 @@ public class FlutterF2fSoundPlugin: NSObject, FlutterPlugin, FlutterStreamHandle
 
         engine.attach(playbackStreamPlayerNode)
 
-        // Read audio file
-        guard let audioFile = try? AVAudioFile(forReading: url) else {
-            result(FlutterError(code: "FILE_ERROR", message: "Could not open audio file", details: nil))
-            return
-        }
-
-        let mainMixer = engine.mainMixerNode
-        engine.connect(playbackStreamPlayerNode, to: mainMixer, format: audioFile.processingFormat)
-
-        // Start playing and sending data
-        playbackStreamSink = eventSink
-
-        do {
-            try engine.start()
-            playbackStreamPlayerNode.play()
-
-            // Read and stream audio data
-            let bufferSize = AVAudioFrameCount(4096)
-            var buffer = AVAudioPCMBuffer(pcmFormat: audioFile.processingFormat, frameCapacity: bufferSize)
-
-            while audioFile.framePosition < audioFile.length {
-                try audioFile.read(into: buffer)
-                if let pcmData = convertBufferToPCM(buffer: buffer) {
-                    playbackStreamSink?(pcmData)
+        // Read audio file asynchronously
+        DispatchQueue.global(qos: .userInitiated).async {
+            guard let audioFile = try? AVAudioFile(forReading: url) else {
+                DispatchQueue.main.async {
+                    result(FlutterError(code: "FILE_ERROR", message: "Could not open audio file", details: nil))
                 }
+                return
             }
 
-            playbackStreamPlayerNode.stop()
-            engine.stop()
-            playbackStreamSink = nil
+            DispatchQueue.main.async {
+                let mainMixer = engine.mainMixerNode
+                engine.connect(playbackStreamPlayerNode, to: mainMixer, format: audioFile.processingFormat)
 
-            result(nil)
-        } catch {
-            result(FlutterError(code: "STREAM_ERROR", message: error.localizedDescription, details: nil))
+                // Start playing and sending data
+                self.playbackStreamSink = self.eventSink
+
+                do {
+                    try engine.start()
+                    self.playbackStreamPlayerNode.play()
+
+                    // Read and stream audio data in a separate thread
+                    DispatchQueue.global(qos: .userInitiated).async {
+                        do {
+                            let bufferSize = AVAudioFrameCount(4096)
+                            var buffer = AVAudioPCMBuffer(pcmFormat: audioFile.processingFormat, frameCapacity: bufferSize)
+
+                            while audioFile.framePosition < audioFile.length && self.playbackStreamSink != nil {
+                                try audioFile.read(into: buffer)
+                                if let pcmData = self.convertBufferToPCM(buffer: buffer) {
+                                    DispatchQueue.main.async {
+                                        self.playbackStreamSink?(pcmData)
+                                    }
+                                }
+                            }
+
+                            DispatchQueue.main.async {
+                                self.playbackStreamPlayerNode.stop()
+                                self.playbackStreamEngine?.stop()
+                                self.playbackStreamSink = nil
+                                result(nil)
+                            }
+                        } catch {
+                            DispatchQueue.main.async {
+                                result(FlutterError(code: "STREAM_ERROR", message: error.localizedDescription, details: nil))
+                            }
+                        }
+                    }
+                } catch {
+                    self.playbackStreamPlayerNode.stop()
+                    self.playbackStreamEngine?.stop()
+                    self.playbackStreamSink = nil
+                    result(FlutterError(code: "STREAM_ERROR", message: error.localizedDescription, details: nil))
+                }
+            }
         }
     }
 

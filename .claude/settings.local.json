@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(timeout:*)",
+      "Bash(powershell -Command:*)",
+      "Bash(flutter clean:*)",
+      "Bash(flutter run:*)",
+      "Bash(taskkill:*)",
+      "Bash(\"C:\\\\Program Files \\(x86\\)\\\\Microsoft Visual Studio\\\\2022\\\\BuildTools\\\\MSBuild\\\\Current\\\\Bin\\\\MSBuild.exe\" flutter_f2f_sound_plugin.vcxproj /p:Configuration=Debug /p:Platform=x64 /t:Clean,Build)",
+      "Bash(\"C:\\\\Program Files \\(x86\\)\\\\Microsoft Visual Studio\\\\2022\\\\BuildTools\\\\MSBuild\\\\Current\\\\Bin\\\\MSBuild.exe\":*)",
+      "Bash(Select-String -Pattern \"\\(error|warning|Building\\)\")",
+      "Bash(handle.exe flutter_f2f_sound_example.exe)"
+    ]
+  }
+}

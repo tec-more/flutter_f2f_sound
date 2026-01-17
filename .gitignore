@@ -1,68 +1,33 @@
-# sphinx build directories
-_build/
-web/node_modules/
-
-# dotfiles
-.*
-!.gitignore
-!.github
-!.mailmap
-# compiled python files
-*.py[co]
-__pycache__/
-# setup.py egg_info
-*.egg-info
-# emacs backup files
-*~
-# hg stuff
-*.orig
-status
-
-
-# generated for windows installer?
-install/win32/*.bat
-install/win32/meta.py
-
-# needed only when building for win32
-setup/win32/static/less/
-setup/win32/static/wkhtmltopdf/
-setup/win32/static/postgresql*.exe
-
-
-# various virtualenv
-/bin/
-/build/
-/dist/
-/include/
-/man/
-/share/
-/src/
-/vscode/
-.vscode/
-.venv/
-
-# logs
-logs/
+# Miscellaneous
+*.class
 *.log
-
-# database
-*.db
-*.sqlite
-*.sqlite3
-
-# pytest cache
-.pytest_cache/
-htmlcov/
-.coverage
-
-# migrations
-migrations/models/
-
-# environment variables
-.env
-.env.local
-
-# IDE
-.idea/
+*.pyc
 *.swp
-*.swo
+.DS_Store
+.atom/
+.build/
+.buildlog/
+.history
+.svn/
+.swiftpm/
+migrate_working_dir/
+
+# IntelliJ related
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# The .vscode folder contains launch configuration and tasks you configure in
+# VS Code which you may wish to be included in version control, so this line
+# is commented out by default.
+#.vscode/
+
+# Flutter/Dart/Pub related
+# Libraries should not include pubspec.lock, per https://dart.dev/guides/libraries/private-files#pubspeclock.
+/pubspec.lock
+**/doc/api/
+.dart_tool/
+.flutter-plugins-dependencies
+/build/
+/coverage/

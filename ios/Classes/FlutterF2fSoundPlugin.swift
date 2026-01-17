@@ -1,6 +1,7 @@
 import Flutter
 import UIKit
 import AVFoundation
+import AudioToolbox
 
 // AudioManager handles all audio playback operations
 class AudioManager {
@@ -190,13 +191,26 @@ class AudioManager {
     }
 }
 
-public class FlutterF2fSoundPlugin: NSObject, FlutterPlugin {
+public class FlutterF2fSoundPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
     private let audioManager = AudioManager()
-    
+
+    // Audio recording
+    private var audioQueue: AudioQueueRef?
+    private var recordingBuffers: [AudioQueueBufferRef] = []
+    private var isRecording = false
+    private var eventSink: FlutterEventSink?
+    private var recordingFormat: AudioStreamBasicDescription?
+
+    // Recording thread
+    private var recordingThread: Thread?
+
     public static func register(with registrar: FlutterPluginRegistrar) {
         let channel = FlutterMethodChannel(name: "com.tecmore.flutter_f2f_sound", binaryMessenger: registrar.messenger())
+        let eventChannel = FlutterEventChannel(name: "com.tecmore.flutter_f2f_sound/recording_stream", binaryMessenger: registrar.messenger())
         let instance = FlutterF2fSoundPlugin()
+
         registrar.addMethodCallDelegate(instance, channel: channel)
+        eventChannel.setStreamHandler(instance)
     }
 
     public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
@@ -209,10 +223,10 @@ public class FlutterF2fSoundPlugin: NSObject, FlutterPlugin {
                 result(FlutterError(code: "INVALID_PATH", message: "Audio path is required", details: nil))
                 return
             }
-            
+
             let volume = arguments["volume"] as? Double ?? 1.0
             let loop = arguments["loop"] as? Bool ?? false
-            
+
             audioManager.play(path: path, volume: volume, loop: loop)
             result(nil)
         case "pause":
@@ -230,7 +244,7 @@ public class FlutterF2fSoundPlugin: NSObject, FlutterPlugin {
                 result(nil)
                 return
             }
-            
+
             audioManager.setVolume(volume: volume)
             result(nil)
         case "isPlaying":
@@ -243,10 +257,142 @@ public class FlutterF2fSoundPlugin: NSObject, FlutterPlugin {
                 result(FlutterError(code: "INVALID_PATH", message: "Audio path is required", details: nil))
                 return
             }
-            
+
             result(audioManager.getDuration(path: path))
+        case "startRecording":
+            startRecording(result: result)
+        case "stopRecording":
+            stopRecording(result: result)
         default:
             result(FlutterMethodNotImplemented)
         }
     }
+
+    // MARK: - Audio Recording
+
+    private func startRecording(result: @escaping FlutterResult) {
+        let session = AVAudioSession.sharedInstance()
+
+        do {
+            try session.setCategory(.record, mode: .default)
+            try session.setActive(true)
+
+            // Setup audio format for recording
+            var streamDescription = AudioStreamBasicDescription(
+                mSampleRate: 44100.0,
+                mFormatID: kAudioFormatLinearPCM,
+                mFormatFlags: kLinearPCMFormatFlagIsSignedInteger | kLinearPCMFormatFlagIsPacked,
+                mBytesPerPacket: 2,
+                mFramesPerPacket: 1,
+                mBytesPerFrame: 2,
+                mChannelsPerFrame: 1,
+                mBitsPerChannel: 16,
+                mReserved: 0
+            )
+
+            recordingFormat = streamDescription
+
+            // Create audio queue
+            var audioQueue: AudioQueueRef?
+            let status = AudioQueueNewInput(
+                &streamDescription,
+                audioQueueInputCallback,
+                Unmanaged.passUnretained(self).toOpaque(),
+                .none,
+                .none,
+                0,
+                &audioQueue
+            )
+
+            if status != noErr {
+                result(FlutterError(code: "RECORD_ERROR", message: "Failed to create audio queue", details: nil))
+                return
+            }
+
+            self.audioQueue = audioQueue
+
+            // Allocate buffers
+            let bufferSize: UInt32 = 4096
+            let bufferCount = 3
+
+            for _ in 0..<bufferCount {
+                var buffer: AudioQueueBufferRef?
+                let bufferStatus = AudioQueueAllocateBuffer(audioQueue!, bufferSize, &buffer)
+
+                if bufferStatus == noErr, let buffer = buffer {
+                    recordingBuffers.append(buffer)
+                    AudioQueueEnqueueBuffer(audioQueue!, buffer, 0, nil)
+                }
+            }
+
+            // Start recording
+            let startStatus = AudioQueueStart(audioQueue!, nil)
+            if startStatus != noErr {
+                result(FlutterError(code: "RECORD_ERROR", message: "Failed to start audio queue", details: nil))
+                return
+            }
+
+            isRecording = true
+            result(nil)
+
+        } catch {
+            result(FlutterError(code: "RECORD_ERROR", message: error.localizedDescription, details: nil))
+        }
+    }
+
+    private func stopRecording(result: @escaping FlutterResult) {
+        if let queue = audioQueue {
+            AudioQueueStop(queue, true)
+            AudioQueueDispose(queue, true)
+            audioQueue = nil
+        }
+
+        recordingBuffers.removeAll()
+        isRecording = false
+
+        let session = AVAudioSession.sharedInstance()
+        try? session.setActive(false)
+
+        result(nil)
+    }
+
+    // MARK: - FlutterStreamHandler
+
+    public func onListen(withArguments arguments: Any?, eventSink: @escaping FlutterEventSink) -> FlutterError? {
+        self.eventSink = eventSink
+        return nil
+    }
+
+    public func onCancel(withArguments arguments: Any?) -> FlutterError? {
+        eventSink = nil
+        stopRecording { _ in }
+        return nil
+    }
+}
+
+// MARK: - Audio Queue Callback
+
+private func audioQueueInputCallback(
+    _ inUserData: UnsafeMutableRawPointer?,
+    inQueue: AudioQueueRef,
+    inBuffer: AudioQueueBufferRef,
+    inStartTime: UnsafePointer<AudioTimeStamp>,
+    inNumberPacketDescriptions: UInt32,
+    inPacketDescs: UnsafePointer<AudioStreamPacketDescription>?
+) {
+    guard let userData = inUserData else { return }
+
+    let plugin = Unmanaged<FlutterF2fSoundPlugin>.fromOpaque(userData).takeUnretainedValue()
+
+    if plugin.isRecording, let eventSink = plugin.eventSink {
+        let audioData = Data(bytes: inBuffer.pointee.mAudioData, count: Int(inBuffer.pointee.mAudioDataByteSize))
+        let intArray = [Int](audioData)
+
+        DispatchQueue.main.async {
+            eventSink(intArray)
+        }
+    }
+
+    // Re-enqueue the buffer
+    AudioQueueEnqueueBuffer(inQueue, inBuffer, 0, nil)
 }

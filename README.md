@@ -4,8 +4,8 @@ A powerful cross-platform audio plugin for Flutter that provides comprehensive a
 
 ## Features
 
-- 🎵 **Audio Playback** - Play audio from local files or network URLs (MP3, WAV, OGG, FLAC, etc.)
-- 🎙️ **Audio Recording** - Record audio from microphone with real-time streaming
+- 🎵 **Audio Playback** - Play audio from local files or network URLs (MP3, WAV, OGG, FLAC, AAC, M4A)
+- 🎙️ **Audio Recording** - Record audio from microphone with real-time streaming (Android, macOS, Windows, Linux)
 - 🖥️ **System Audio Capture** - Capture system audio output (Windows/Linux)
 - 🎚️ **Volume Control** - Real-time volume adjustment (0.0 to 1.0)
 - ⏯️ **Playback Controls** - Play, pause, stop, and resume audio
@@ -13,17 +13,31 @@ A powerful cross-platform audio plugin for Flutter that provides comprehensive a
 - 📍 **Seeking Support** - Seek to specific positions (Linux)
 - 🎚️ **Format Conversion** - Automatic sample rate conversion across all platforms
 - 📊 **Playback Information** - Get current position and duration of audio
-- 🌐 **Network Streaming** - Non-blocking async playback from network URLs
-- 📱 **Cross-Platform** - Android, iOS, Windows, Linux
+- 🌐 **Network Streaming** - Non-blocking async playback from network URLs (all platforms)
+- 📡 **Real-time Audio Streams** - Stream audio data to Flutter layer for processing
+- 📱 **Cross-Platform** - Android, iOS, macOS, Windows, Linux
 
 ## Platform Support
 
-| Platform | Playback | Recording | System Audio | Streaming | Format Support | Audio Engine |
-|----------|----------|-----------|--------------|-----------|----------------|--------------|
-| Android  | ✅ | ✅ | ❌ | ✅ | MP3, WAV, AAC, FLAC, OGG | MediaPlayer |
-| iOS      | ✅ | ❌ | ❌ | ✅ | MP3, WAV, AAC, ALAC, M4A | AVFoundation |
-| Windows  | ✅ | ✅ | ✅ | ❌ | MP3, WAV, WMA, AAC | Media Foundation + WASAPI |
-| Linux    | ✅ | ✅ | ✅ | ✅ | MP3, WAV, OGG, FLAC, OPUS | PulseAudio + libsndfile |
+| Platform | Playback | Recording | System Audio | Playback Stream | Recording Stream | Format Support | Audio Engine |
+|----------|----------|-----------|--------------|-----------------|------------------|----------------|--------------|
+| Android  | ✅ | ✅ | ❌ | ❌ | ✅ | MP3, WAV, AAC, FLAC, OGG, M4A | MediaPlayer |
+| iOS      | ✅ | ✅ | ❌ | ❌ | ✅ | MP3, WAV, AAC, ALAC, M4A | AVFoundation + AudioToolbox |
+| Windows  | ✅ | ✅ | ✅ | ❌ | ✅ | MP3, WAV, WMA | Media Foundation + WASAPI |
+| macOS    | ✅ | ✅ | ❌ | ✅ | ✅ | MP3, WAV, AAC, M4A | AVFoundation |
+| Linux    | ✅ | ✅ | ✅ | ❌ | ✅ | MP3, WAV, OGG, FLAC, OPUS, VOC | PulseAudio + libsndfile |
+
+**Legend:**
+- **Playback**: Play local/network audio files
+- **Recording**: Record audio from microphone
+- **System Audio**: Capture system output audio (Windows/Linux only)
+- **Playback Stream**: Stream audio data while playing to Flutter layer (macOS only)
+- **Recording Stream**: Stream microphone audio data to Flutter layer
+
+**Notes:**
+- iOS supports microphone recording with real-time streaming
+- macOS has full recording support and unique playback streaming capability
+- System audio capture requires special permissions on Windows/Linux
 
 ## Installation
 
@@ -61,7 +75,13 @@ No special setup required. The plugin uses `MediaPlayer` which is built into And
 
 ### iOS
 
-No special setup required. The plugin uses `AVFoundation` which is built into iOS.
+No special setup required. The plugin uses `AVFoundation` and `AudioToolbox` which are built into iOS.
+
+**Permissions** (add to `ios/Runner/Info.plist`):
+```xml
+<key>NSMicrophoneUsageDescription</key>
+<string>This app needs access to the microphone for recording audio.</string>
+```
 
 ### Windows
 
@@ -268,12 +288,18 @@ Start system sound capture and get a stream of captured audio data.
 
 **Platform-specific capabilities:**
 
-| Platform | MP3 | WAV | OGG | FLAC | AAC | Network | Sample Rate Conversion |
-|----------|-----|-----|-----|------|-----|---------|----------------------|
-| Android  | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ (Automatic) |
-| iOS      | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ (Automatic) |
-| Windows  | ✅ | ✅ | ❌ | ❌ | ✅ | ✅ | ✅ (Custom) |
-| Linux    | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ (libsamplerate) |
+| Platform | MP3 | WAV | OGG | FLAC | AAC | M4A | Network | Sample Rate Conversion |
+|----------|-----|-----|-----|------|-----|-----|---------|----------------------|
+| Android  | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ (Automatic via MediaPlayer) |
+| iOS      | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ (Automatic via AVFoundation) |
+| Windows  | ✅ | ✅ | ❌ | ❌ | ✅ | ❌ | ✅ | ✅ (Custom linear interpolation) |
+| macOS    | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ (Automatic via AVFoundation) |
+| Linux    | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ (libsamplerate, SINC_BEST_QUALITY) |
+
+**Notes:**
+- **OGG/FLAC**: Supported on Android/iOS/macOS through system codecs, on Linux via libsndfile
+- **M4A**: Container format, supported on Android/iOS/macOS
+- **Network**: All platforms support non-blocking async playback from HTTP/HTTPS URLs
 
 ### Sample Rate Conversion
 
@@ -289,6 +315,7 @@ All platforms implement non-blocking network audio playback:
 
 - **Android**: Uses `prepareAsync()` for MediaPlayer
 - **iOS**: Uses `AVPlayer` for network streams (non-blocking)
+- **macOS**: Uses `AVPlayer` for network streams (non-blocking)
 - **Windows**: Downloads on background thread
 - **Linux**: Downloads via libcurl in background thread
 
@@ -305,6 +332,14 @@ All platforms implement non-blocking network audio playback:
   - `AVPlayer` for network URLs (non-blocking streaming)
   - `AVAudioPlayer` for local files (fast loading)
 - Automatic sample rate conversion via AVFoundation
+- `AudioQueue` for real-time recording and streaming
+
+### macOS
+- `AVAudioPlayer` and `AVAudioEngine` for playback
+- `AVAudioRecorder` for recording
+- `AVAudioEngine` for playback streaming (unique to macOS)
+- Automatic sample rate conversion via AVFoundation
+- Full recording and streaming support
 
 ### Windows
 - `Media Foundation` for MP3/audio decoding
@@ -403,7 +438,7 @@ Your support helps maintain and improve this plugin. Any amount is appreciated!
 ### Version 1.0.0
 - ✅ Initial release
 - ✅ Cross-platform audio playback (Android, iOS, Windows, Linux)
-- ✅ Audio recording support (Android, Windows, Linux)
+- ✅ Audio recording support (Android, iOS, Windows, Linux)
 - ✅ System audio capture (Windows, Linux)
 - ✅ Network streaming with non-blocking async
 - ✅ Automatic sample rate conversion

@@ -429,7 +429,7 @@ If you find this plugin useful, please consider supporting its development:
 Your support helps maintain and improve this plugin. Any amount is appreciated!
 
 <div align="center">
-  <img src="20260117150332_7_111.jpg" alt="收款码" width="300"/>
+  <img src="20260117150332_7_111.jpg" alt="收款码" width="200"/>
   <p>微信扫码支持</p>
 </div>
 

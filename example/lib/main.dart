@@ -212,7 +212,7 @@ class _MyAppState extends State<MyApp> {
                                 _duration = duration;
                               });
 
-                              print('Duration updated: $_duration');
+                              debugPrint('Duration updated: $_duration');
                             }
                           } catch (e) {
                             debugPrint('Playback error: $e');
@@ -322,7 +322,7 @@ class _MyAppState extends State<MyApp> {
                       max: _duration > 0 ? _duration : 1.0,
                       onChanged: (value) {
                         // Note: Position seeking is not implemented in this example
-                        print('Slider changed: value=$value');
+                        debugPrint('Slider changed: value=$value');
                       },
                       activeColor: _isPlaying ? Colors.blue : Colors.grey,
                       inactiveColor: Colors.grey[300],
@@ -369,26 +369,31 @@ class _MyAppState extends State<MyApp> {
 
                         // Request microphone permission
                         final status = await Permission.microphone.request();
+                        if (!mounted) return;
+
                         if (status != PermissionStatus.granted) {
-                          print('Microphone permission denied');
+                          debugPrint('Microphone permission denied');
                           // Show permission denied dialog
-                          showDialog(
-                            context: context,
-                            builder: (context) => AlertDialog(
-                              title: const Text('Permission Denied'),
-                              content: const Text(
-                                'Microphone permission is required to record audio.',
-                              ),
-                              actions: [
-                                TextButton(
-                                  onPressed: () {
-                                    Navigator.pop(context);
-                                  },
-                                  child: const Text('OK'),
+                          if (!mounted) return;
+                          if (context.mounted) {
+                            showDialog(
+                              context: context,
+                              builder: (context) => AlertDialog(
+                                title: const Text('Permission Denied'),
+                                content: const Text(
+                                  'Microphone permission is required to record audio.',
                                 ),
-                              ],
-                            ),
-                          );
+                                actions: [
+                                  TextButton(
+                                    onPressed: () {
+                                      Navigator.pop(context);
+                                    },
+                                    child: const Text('OK'),
+                                  ),
+                                ],
+                              ),
+                            );
+                          }
                           return;
                         }
 
@@ -426,14 +431,14 @@ class _MyAppState extends State<MyApp> {
                               });
                             },
                             onError: (error) {
-                              print('Recording error: $error');
+                              debugPrint('Recording error: $error');
                               setState(() {
                                 _isRecording = false;
                               });
                             },
                           );
                         } catch (e) {
-                          print('Failed to start recording: $e');
+                          debugPrint('Failed to start recording: $e');
                           setState(() {
                             _isRecording = false;
                           });
@@ -540,14 +545,14 @@ class _MyAppState extends State<MyApp> {
                                   });
                                 },
                                 onError: (error) {
-                                  print('System sound capture error: $error');
+                                  debugPrint('System sound capture error: $error');
                                   setState(() {
                                     _isCapturingSystemSound = false;
                                   });
                                 },
                               );
                         } catch (e) {
-                          print('Failed to start system sound capture: $e');
+                          debugPrint('Failed to start system sound capture: $e');
                           setState(() {
                             _isCapturingSystemSound = false;
                           });

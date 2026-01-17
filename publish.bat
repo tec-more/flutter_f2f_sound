@@ -92,6 +92,8 @@ if not "%confirm%"=="yes" (
 )
 
 echo.
+echo [PUBLISHING] Setting PUB_HOSTED_URL to pub.dev...
+set PUB_HOSTED_URL=https://pub.dev
 echo [PUBLISHING] Starting...
 dart pub publish
 

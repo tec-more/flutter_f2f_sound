@@ -349,7 +349,13 @@ class F2fAudioManager(private val context: Context) {
                 0.0  // Duration will be updated when MediaPlayer is prepared
             } else {
                 tempPlayer.prepare()
+
+                // Log audio properties for debugging
                 val dur = tempPlayer.duration.toDouble() / 1000
+                println("Audio file loaded - Duration: $dur seconds")
+                println("Note: MediaPlayer automatically handles sample rate conversion")
+                println("Device sample rate will be used for playback")
+
                 tempPlayer.release()
                 dur
             }
@@ -358,5 +364,19 @@ class F2fAudioManager(private val context: Context) {
             e.printStackTrace()
             0.0
         }
+    }
+
+    /** Get device audio properties */
+    fun getAudioProperties(): Map<String, Any> {
+        val audioManager = context.getSystemService(android.content.Context.AUDIO_SERVICE) as AndroidAudioManager
+        val sampleRate = audioManager.getProperty(android.media.AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE) ?: "48000"
+        val framesPerBuffer = audioManager.getProperty(android.media.AudioManager.PROPERTY_OUTPUT_FRAMES_PER_BUFFER) ?: "256"
+
+        return mapOf(
+            "sampleRate" to sampleRate.toInt(),
+            "framesPerBuffer" to framesPerBuffer.toInt(),
+            "supportsSampleRateConversion" to true,
+            "note" to "MediaPlayer automatically converts audio to device sample rate"
+        )
     }
 }

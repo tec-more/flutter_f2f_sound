@@ -170,6 +170,24 @@ class AudioManager {
             return audioPlayer?.duration ?? 0.0
         }
     }
+
+    // Get device audio properties
+    func getAudioProperties() -> [String: Any] {
+        var sampleRate: Double = 44100.0
+        var supportsSampleRateConversion = false
+
+        // Get current hardware sample rate
+        if let session = AVAudioSession.sharedInstance() as? AVAudioSession {
+            sampleRate = session.sampleRate
+            supportsSampleRateConversion = true
+        }
+
+        return [
+            "sampleRate": sampleRate,
+            "supportsSampleRateConversion": supportsSampleRateConversion,
+            "note": "AVPlayer and AVAudioPlayer automatically handle sample rate conversion"
+        ]
+    }
 }
 
 public class FlutterF2fSoundPlugin: NSObject, FlutterPlugin {

@@ -2,6 +2,14 @@
 #define FLUTTER_PLUGIN_FLUTTER_F2F_SOUND_PLUGIN_H_
 
 #include <flutter_linux/flutter_linux.h>
+#include <pulse/pulseaudio.h>
+#include <curl/curl.h>
+#include <sndfile.h>
+#include <samplerate.h>
+#include <pthread.h>
+#include <atomic>
+#include <string>
+#include <vector>
 
 G_BEGIN_DECLS
 

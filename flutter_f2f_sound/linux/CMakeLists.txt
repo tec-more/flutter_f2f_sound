@@ -43,6 +43,31 @@ target_include_directories(${PLUGIN_NAME} INTERFACE
 target_link_libraries(${PLUGIN_NAME} PRIVATE flutter)
 target_link_libraries(${PLUGIN_NAME} PRIVATE PkgConfig::GTK)
 
+# Find and link PulseAudio
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(PULSEAUDIO REQUIRED libpulse)
+target_include_directories(${PLUGIN_NAME} PRIVATE ${PULSEAUDIO_INCLUDE_DIRS})
+target_link_libraries(${PLUGIN_NAME} PRIVATE ${PULSEAUDIO_LIBRARIES})
+target_compile_options(${PLUGIN_NAME} PRIVATE ${PULSEAUDIO_CFLAGS_OTHER})
+
+# Find and link libcurl for network audio
+pkg_check_modules(CURL REQUIRED libcurl)
+target_include_directories(${PLUGIN_NAME} PRIVATE ${CURL_INCLUDE_DIRS})
+target_link_libraries(${PLUGIN_NAME} PRIVATE ${CURL_LIBRARIES})
+target_compile_options(${PLUGIN_NAME} PRIVATE ${CURL_CFLAGS_OTHER})
+
+# Find and link libsndfile for audio format support
+pkg_check_modules(SNDFILE REQUIRED sndfile)
+target_include_directories(${PLUGIN_NAME} PRIVATE ${SNDFILE_INCLUDE_DIRS})
+target_link_libraries(${PLUGIN_NAME} PRIVATE ${SNDFILE_LIBRARIES})
+target_compile_options(${PLUGIN_NAME} PRIVATE ${SNDFILE_CFLAGS_OTHER})
+
+# Find and link libsample rate conversion
+pkg_check_modules(SRC REQUIRED samplerate)
+target_include_directories(${PLUGIN_NAME} PRIVATE ${SRC_INCLUDE_DIRS})
+target_link_libraries(${PLUGIN_NAME} PRIVATE ${SRC_LIBRARIES})
+target_compile_options(${PLUGIN_NAME} PRIVATE ${SRC_CFLAGS_OTHER})
+
 # List of absolute paths to libraries that should be bundled with the plugin.
 # This list could contain prebuilt libraries, or libraries created by an
 # external build triggered from this build file.

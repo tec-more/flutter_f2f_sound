@@ -360,13 +360,13 @@ void FlutterF2fSoundPlugin::HandleMethodCall(
       return;
     }
 
-    const auto* path_value = args->find(flutter::EncodableValue("path"));
-    if (!path_value) {
+    auto path_value = args->find(flutter::EncodableValue("path"));
+    if (path_value == args->end()) {
       result->Error("ARGUMENT_ERROR", "Missing 'path' argument");
       return;
     }
 
-    std::string path = std::get<std::string>(*path_value);
+    std::string path = std::get<std::string>(path_value->second);
 
     // Stop any existing playback stream
     if (is_playback_streaming_) {
@@ -2068,8 +2068,8 @@ void FlutterF2fSoundPlugin::PlaybackStreamThread(const std::string& path) {
     url_components.lpszHostName = host_name;
     url_components.dwHostNameLength = sizeof(host_name) / sizeof(wchar_t);
     
-    DWORD port = 0;
-    url_components.dwPort = port;
+    INTERNET_PORT port = 0;
+    url_components.nPort = port;
     
     wchar_t path_component[1024] = {0};
     url_components.lpszUrlPath = path_component;
@@ -2086,7 +2086,7 @@ void FlutterF2fSoundPlugin::PlaybackStreamThread(const std::string& path) {
     }
     
     // Use default HTTPS port if not specified
-    DWORD actual_port = url_components.dwPort != 0 ? url_components.dwPort : 443;
+    INTERNET_PORT actual_port = url_components.nPort != 0 ? url_components.nPort : 443;
     bool is_https = (url_components.nScheme == INTERNET_SCHEME_HTTPS);
     
     HINTERNET hConnect = WinHttpConnect(hSession,

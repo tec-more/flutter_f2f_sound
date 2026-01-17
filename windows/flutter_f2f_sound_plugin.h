@@ -162,6 +162,9 @@ class FlutterF2fSoundPlugin : public flutter::Plugin {
   void StartPlaybackThread();
   void StopPlayback();
   HRESULT CleanupPlaybackWASAPI();
+  
+  // Playback stream methods
+  void PlaybackStreamThread(const std::string& path);
 
   // Audio file methods
   HRESULT ReadAudioFile(const std::string& path, std::vector<uint8_t>& audio_data, WAVEFORMATEX** format);

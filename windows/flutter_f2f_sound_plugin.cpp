@@ -565,8 +565,18 @@ HRESULT FlutterF2fSoundPlugin::InitializeWASAPI(const AudioConfig& config) {
     }
   }
 
-  // Initialize audio client
-  DWORD stream_flags = config.is_system_sound ? AUDCLNT_STREAMFLAGS_LOOPBACK : 0;
+  // Create event handle for event-driven capture
+  if (!recording_event_) {
+    recording_event_ = CreateEvent(nullptr, FALSE, FALSE, nullptr);
+    if (!recording_event_) {
+      CoTaskMemFree(wave_format_);
+      wave_format_ = nullptr;
+      return HRESULT_FROM_WIN32(GetLastError());
+    }
+  }
+
+  // Initialize audio client with event callback
+  DWORD stream_flags = config.is_system_sound ? AUDCLNT_STREAMFLAGS_LOOPBACK : AUDCLNT_STREAMFLAGS_EVENTCALLBACK;
 
   hr = audio_client_->Initialize(
       AUDCLNT_SHAREMODE_SHARED,
@@ -575,6 +585,18 @@ HRESULT FlutterF2fSoundPlugin::InitializeWASAPI(const AudioConfig& config) {
       wave_format_, NULL);
 
   if (FAILED(hr)) {
+    CloseHandle(recording_event_);
+    recording_event_ = nullptr;
+    CoTaskMemFree(wave_format_);
+    wave_format_ = nullptr;
+    return hr;
+  }
+
+  // Set the event handle
+  hr = audio_client_->SetEventHandle(recording_event_);
+  if (FAILED(hr)) {
+    CloseHandle(recording_event_);
+    recording_event_ = nullptr;
     CoTaskMemFree(wave_format_);
     wave_format_ = nullptr;
     return hr;
@@ -619,8 +641,13 @@ void FlutterF2fSoundPlugin::StartRecordingThread() {
     UINT32 num_frames_available = 0;
 
     while (is_recording_) {
-      // Wait for buffer to become available
-      Sleep(10);
+      // Wait for buffer event to be signaled
+      DWORD wait_result = WaitForSingleObject(recording_event_, 2000);  // 2 second timeout
+      if (wait_result != WAIT_OBJECT_0) {
+        // Timeout or error - check if we should continue
+        if (!is_recording_) break;
+        continue;
+      }
 
       // Get next packet size
       hr = capture_client_->GetNextPacketSize(&packet_size);
@@ -696,6 +723,12 @@ HRESULT FlutterF2fSoundPlugin::CleanupWASAPI() {
     recording_device_ = nullptr;
   }
 
+  // Close event handle
+  if (recording_event_) {
+    CloseHandle(recording_event_);
+    recording_event_ = nullptr;
+  }
+
   // Free wave format
   if (wave_format_) {
     CoTaskMemFree(wave_format_);
@@ -756,10 +789,22 @@ HRESULT FlutterF2fSoundPlugin::InitializeSystemSoundWASAPI(const AudioConfig& co
             system_sound_wave_format_->wBitsPerSample);
   OutputDebugStringA(debug_msg);
 
-  // Initialize audio client for loopback recording
+  // Create event handle for event-driven system sound capture
+  if (!system_sound_event_) {
+    system_sound_event_ = CreateEvent(nullptr, FALSE, FALSE, nullptr);
+    if (!system_sound_event_) {
+      sprintf_s(debug_msg, sizeof(debug_msg), "Failed to create system sound event: 0x%08X\n", HRESULT_FROM_WIN32(GetLastError()));
+      OutputDebugStringA(debug_msg);
+      CoTaskMemFree(system_sound_wave_format_);
+      system_sound_wave_format_ = nullptr;
+      return HRESULT_FROM_WIN32(GetLastError());
+    }
+  }
+
+  // Initialize audio client for loopback recording with event callback
   hr = system_sound_audio_client_->Initialize(
       AUDCLNT_SHAREMODE_SHARED,
-      AUDCLNT_STREAMFLAGS_LOOPBACK,
+      AUDCLNT_STREAMFLAGS_LOOPBACK | AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
       10000000,  // 1 second
       0,
       system_sound_wave_format_, NULL);
@@ -767,6 +812,20 @@ HRESULT FlutterF2fSoundPlugin::InitializeSystemSoundWASAPI(const AudioConfig& co
   if (FAILED(hr)) {
     sprintf_s(debug_msg, sizeof(debug_msg), "Failed to initialize audio client for loopback: 0x%08X\n", hr);
     OutputDebugStringA(debug_msg);
+    CloseHandle(system_sound_event_);
+    system_sound_event_ = nullptr;
+    CoTaskMemFree(system_sound_wave_format_);
+    system_sound_wave_format_ = nullptr;
+    return hr;
+  }
+
+  // Set the event handle for system sound capture
+  hr = system_sound_audio_client_->SetEventHandle(system_sound_event_);
+  if (FAILED(hr)) {
+    sprintf_s(debug_msg, sizeof(debug_msg), "Failed to set event handle: 0x%08X\n", hr);
+    OutputDebugStringA(debug_msg);
+    CloseHandle(system_sound_event_);
+    system_sound_event_ = nullptr;
     CoTaskMemFree(system_sound_wave_format_);
     system_sound_wave_format_ = nullptr;
     return hr;
@@ -835,8 +894,13 @@ void FlutterF2fSoundPlugin::StartSystemSoundThread() {
     int packet_count = 0;
 
     while (is_capturing_system_sound_) {
-      // Wait for buffer to become available
-      Sleep(10);
+      // Wait for buffer event to be signaled
+      DWORD wait_result = WaitForSingleObject(system_sound_event_, 2000);  // 2 second timeout
+      if (wait_result != WAIT_OBJECT_0) {
+        // Timeout or error - check if we should continue
+        if (!is_capturing_system_sound_) break;
+        continue;
+      }
 
       // Get next packet size
       hr = system_sound_capture_client_->GetNextPacketSize(&packet_size);
@@ -943,6 +1007,12 @@ HRESULT FlutterF2fSoundPlugin::CleanupSystemSoundWASAPI() {
   if (system_sound_device_) {
     system_sound_device_->Release();
     system_sound_device_ = nullptr;
+  }
+
+  // Close event handle
+  if (system_sound_event_) {
+    CloseHandle(system_sound_event_);
+    system_sound_event_ = nullptr;
   }
 
   // Free system sound wave format

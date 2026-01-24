@@ -98,11 +98,13 @@ class FlutterF2fSoundPlugin : public flutter::Plugin {
   IMMDevice* recording_device_ = nullptr;
   IAudioClient* audio_client_ = nullptr;
   IAudioCaptureClient* capture_client_ = nullptr;
+  HANDLE recording_event_ = nullptr;  // Event handle for event-driven capture
 
   // WASAPI interfaces for system sound capture (separate)
   IMMDevice* system_sound_device_ = nullptr;
   IAudioClient* system_sound_audio_client_ = nullptr;
   IAudioCaptureClient* system_sound_capture_client_ = nullptr;
+  HANDLE system_sound_event_ = nullptr;  // Event handle for event-driven system sound capture
   WAVEFORMATEX *system_sound_wave_format_ = nullptr;
   WAVEFORMATEXTENSIBLE *system_sound_wave_format_extensible_ = nullptr;
   UINT32 system_sound_buffer_frame_count_ = 0;
@@ -119,7 +121,9 @@ class FlutterF2fSoundPlugin : public flutter::Plugin {
   WAVEFORMATEX *wave_format_ = nullptr;
   WAVEFORMATEXTENSIBLE *wave_format_extensible_ = nullptr;
   UINT32 buffer_frame_count_ = 0;
-  REFERENCE_TIME hns_requested_duration_ = 10000000;  // 1 second
+  // REFERENCE_TIME hns_requested_duration_ = 10000000;  // 1 second
+  REFERENCE_TIME hns_requested_duration_ = 400000;  // 40ms instead of 1s
+
 
   // Playback parameters
   WAVEFORMATEX *playback_wave_format_ = nullptr;

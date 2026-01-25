@@ -1333,12 +1333,30 @@ void FlutterF2fSoundPlugin::StartPlaybackThread() {
       } else {
         // No more data
         if (!is_looping_) {
-          // Fill remaining with silence and mark for exit
+          // Fill remaining with silence
           memset(buffer, 0, bytes_to_write);
           render_client_->ReleaseBuffer(frames_to_write, 0);
 
-          // Wait for buffer to finish playing
-          Sleep(500);
+          // Wait for all buffered audio to finish playing
+          // Keep checking until there's no more audio in the buffer
+          OutputDebugStringA("All data written, waiting for buffer to finish playing...\n");
+          while (true) {
+            UINT32 padding = 0;
+            hr = playback_audio_client_->GetCurrentPadding(&padding);
+            if (FAILED(hr) || padding == 0) {
+              // Buffer is empty or error occurred
+              break;
+            }
+            // Calculate remaining time in milliseconds
+            double remaining_ms = (padding * 1000.0) / samples_per_second;
+            sprintf_s(debug_msg, sizeof(debug_msg),
+              "Waiting for buffer: %u frames remaining (~%.0f ms)\n",
+              padding, remaining_ms);
+            OutputDebugStringA(debug_msg);
+            // Sleep for a short time and check again
+            Sleep(50);
+          }
+          OutputDebugStringA("Buffer finished playing, exiting playback loop\n");
           break;
         } else {
           // Loop back to start
@@ -1737,7 +1755,47 @@ HRESULT FlutterF2fSoundPlugin::ConvertAudioFormat(const WAVEFORMATEX* input_form
     return S_OK;
   }
 
-  // Case 4: Same format, just copy
+  // Case 4: 16-bit PCM mono to 32-bit Float stereo with sample rate conversion
+  if (input_format->wBitsPerSample == 16 && output_format->wBitsPerSample == 32 &&
+      input_format->nChannels == 1 && output_format->nChannels == 2) {
+
+    sprintf_s(debug_msg, sizeof(debug_msg), "Converting 16-bit PCM mono to 32-bit Float stereo with sample rate conversion\n");
+    OutputDebugStringA(debug_msg);
+
+    const int16_t* input = reinterpret_cast<const int16_t*>(input_data.data());
+    float* output = reinterpret_cast<float*>(output_data.data());
+
+    double sample_rate_ratio = (double)output_format->nSamplesPerSec / (double)input_format->nSamplesPerSec;
+
+    // Convert mono to stereo, 16-bit to 32-bit float, with sample rate conversion
+    for (size_t i = 0; i < output_frames; i++) {
+      // Calculate source sample position (floating point)
+      double src_pos = i / sample_rate_ratio;
+      size_t src_index = static_cast<size_t>(src_pos);
+
+      // Linear interpolation between two samples
+      float sample;
+      if (src_index + 1 < input_samples) {
+        float sample1 = static_cast<float>(input[src_index]) / 32768.0f;
+        float sample2 = static_cast<float>(input[src_index + 1]) / 32768.0f;
+        float frac = static_cast<float>(src_pos - src_index);
+        sample = sample1 * (1.0f - frac) + sample2 * frac;
+      } else {
+        // Near the end, just use the last sample
+        sample = static_cast<float>(input[src_index]) / 32768.0f;
+      }
+
+      // Duplicate to both channels (mono to stereo)
+      output[i * 2] = sample;      // Left channel
+      output[i * 2 + 1] = sample;  // Right channel
+    }
+
+    sprintf_s(debug_msg, sizeof(debug_msg), "Conversion complete: %zu frames converted with resampling and mono->stereo\n", output_frames);
+    OutputDebugStringA(debug_msg);
+    return S_OK;
+  }
+
+  // Case 5: Same format, just copy
   if (!need_bit_depth_conversion && !need_channel_conversion && !need_rate_conversion) {
     sprintf_s(debug_msg, sizeof(debug_msg), "No conversion needed, copying data\n");
     OutputDebugStringA(debug_msg);
@@ -1745,7 +1803,7 @@ HRESULT FlutterF2fSoundPlugin::ConvertAudioFormat(const WAVEFORMATEX* input_form
     return S_OK;
   }
 
-  // Case 5: Unsupported conversion - log error and copy as fallback
+  // Case 6: Unsupported conversion - log error and copy as fallback
   sprintf_s(debug_msg, sizeof(debug_msg),
     "WARNING: Unsupported format conversion, copying as fallback. This may produce no audio!\n");
   OutputDebugStringA(debug_msg);

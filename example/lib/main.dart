@@ -52,6 +52,10 @@ class _MyAppState extends State<MyApp> {
     // _audioPath = 'C:\\Windows\\Media\\Alarm01.wav';
     _audioPath =
         'https://cdn.freesound.org/previews/73/73197_806506-lq.mp3'; // Default Windows alarm sound
+    // _audioPath =
+    //     'D:\\Programs\\flutter\\ai\\aif2f\\sounds\\system_sound_2026-01-25T19-57-17_488114.wav';
+    // _audioPath =
+    //     'D:\\Programs\\flutter\\ai\\aif2f\\sounds\\ttl\\tts1_1769342773382.wav';
   }
 
   @override
@@ -124,7 +128,9 @@ class _MyAppState extends State<MyApp> {
           _duration = duration;
         });
 
-        debugPrint('Duration updated after ${attempts + 1} attempts: $_duration');
+        debugPrint(
+          'Duration updated after ${attempts + 1} attempts: $_duration',
+        );
         return;
       }
 
@@ -545,14 +551,18 @@ class _MyAppState extends State<MyApp> {
                                   });
                                 },
                                 onError: (error) {
-                                  debugPrint('System sound capture error: $error');
+                                  debugPrint(
+                                    'System sound capture error: $error',
+                                  );
                                   setState(() {
                                     _isCapturingSystemSound = false;
                                   });
                                 },
                               );
                         } catch (e) {
-                          debugPrint('Failed to start system sound capture: $e');
+                          debugPrint(
+                            'Failed to start system sound capture: $e',
+                          );
                           setState(() {
                             _isCapturingSystemSound = false;
                           });

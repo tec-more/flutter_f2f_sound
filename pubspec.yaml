@@ -1,6 +1,6 @@
 name: flutter_f2f_sound
 description: A powerful cross-platform audio plugin for Flutter. Supports audio playback, recording, system audio capture, and real-time streaming across Android, iOS, macOS, Windows, and Linux.
-version: 1.0.3
+version: 1.0.4
 homepage: https://github.com/tecmore/flutter_f2f_sound
 repository: https://github.com/tecmore/flutter_f2f_sound
 issue_tracker: https://github.com/tecmore/flutter_f2f_sound/issues

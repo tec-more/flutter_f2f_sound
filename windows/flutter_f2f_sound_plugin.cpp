@@ -805,7 +805,7 @@ HRESULT FlutterF2fSoundPlugin::InitializeSystemSoundWASAPI(const AudioConfig& co
   hr = system_sound_audio_client_->Initialize(
       AUDCLNT_SHAREMODE_SHARED,
       AUDCLNT_STREAMFLAGS_LOOPBACK | AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
-      10000000,  // 1 second
+      hns_requested_duration_,  // 1 second
       0,
       system_sound_wave_format_, NULL);
 

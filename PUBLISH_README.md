@@ -188,6 +188,7 @@ cat PRE_PUBLISH_CHECKLIST.md
 3. **或手动发布**
    ```bash
    dart pub publish
+   dart pub publish --server=https://pub.dev
    ```
 
 祝你发布顺利！🎉

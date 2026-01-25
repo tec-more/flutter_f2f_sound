@@ -5,48 +5,68 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.2] - 2026-01-25
+
+### Fixed
+- Playback stream functionality across all platforms
+- Network URL streaming support
+- Event channel conflicts resolved
+- Java 23 compatibility issues
+- Windows CMake cache path mismatch error
+- TLS certificate errors during dependency download
+
+### Improvements
+- Enhanced network streaming performance
+- Better error handling for audio playback
+- Improved cross-platform compatibility
+
+## [1.0.1] - 2026-01-20
+
+### Fixed
+- Minor bug fixes and performance improvements
+
 ## [1.0.0] - 2025-01-17
 
 ### Added
-- 🎵 **Audio Playback**
+- Audio Playback
   - Play audio from local files (MP3, WAV, OGG, FLAC, AAC, M4A)
   - Play audio from network URLs with non-blocking async streaming
   - Support for all major platforms: Android, iOS, macOS, Windows, Linux
 
-- 🎙️ **Audio Recording**
+- Audio Recording
   - Microphone recording support on Android, iOS, macOS, Windows, Linux
   - Real-time audio streaming to Flutter layer via EventChannel
   - Configurable sample rate and channels
 
-- 🖥️ **System Audio Capture**
+- System Audio Capture
   - Windows: WASAPI loopback recording for system audio
   - Linux: PulseAudio monitor stream for system audio
 
-- 🎚️ **Playback Controls**
+- Playback Controls
   - Play, pause, stop, resume controls
   - Loop playback support
   - Volume control (0.0 to 1.0)
   - Seeking support (Linux)
 
-- 📊 **Playback Information**
+- Playback Information
   - Current position tracking
   - Duration retrieval
   - Playback state query
 
-- 🌐 **Network Streaming**
+- Network Streaming
   - Non-blocking async playback from HTTP/HTTPS URLs
   - Background downloading (Windows, Linux)
   - AVPlayer for iOS network streams
   - MediaPlayer prepareAsync for Android
 
-- 🎚️ **Format Conversion**
+- Format Conversion
   - Automatic sample rate conversion on all platforms
   - Android/iOS: Built-in conversion via MediaPlayer/AVFoundation
   - Windows: Custom linear interpolation resampling
   - Linux: Professional quality conversion using libsamplerate (SRC_SINC_BEST_QUALITY)
   - macOS: Built-in conversion via AVFoundation
 
-- 📡 **Real-time Audio Streams**
+- Real-time Audio Streams
   - Recording stream: Microphone audio data streaming
   - Playback stream: Audio data streaming during playback (macOS only)
   - System sound stream: System audio capture (Windows/Linux only)
